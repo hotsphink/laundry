@@ -3,6 +3,7 @@ import { FORMAT_VERSION, type Board, type FormatSpec, type Item, type List } fro
 import Modal from "./Modal.js";
 import FormatEditor, { formatHasErrors, rankSampleItems } from "./FormatEditor.js";
 import { db } from "../db/database.js";
+import { itemsWithOverlay } from "../db/overlay.js";
 
 export interface ListFormData {
   name: string;
@@ -39,8 +40,11 @@ const ListFormModal: Component<Props> = (props) => {
       setFormatOverride(props.initial?.format?.text ?? "");
       setFormatError(null);
       setSampleItems([]);
-      if (props.initial) {
-        db.items.where("list_id").equals(props.initial.id).toArray()
+      const list = props.initial;
+      const board = list && props.boards.find((b) => b.id === list.board_id);
+      if (list) {
+        db.items.where("list_id").equals(list.id).toArray()
+          .then((items) => board ? itemsWithOverlay(board, items) : items)
           .then((items) => setSampleItems(rankSampleItems(items)))
           .catch(console.error);
       }

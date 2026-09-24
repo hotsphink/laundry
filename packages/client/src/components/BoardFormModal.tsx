@@ -5,6 +5,7 @@ import SchemaEditor from "./SchemaEditor.js";
 import IntegrationsEditor from "./IntegrationsEditor.js";
 import FormatEditor, { formatHasErrors, rankSampleItems } from "./FormatEditor.js";
 import { db } from "../db/database.js";
+import { itemsWithOverlay } from "../db/overlay.js";
 import { availableIntegrations } from "../store/integrationCatalog.js";
 
 function generateFormat(schema: AttributeDefinition[]): string {
@@ -29,9 +30,9 @@ async function listOverridesForBoard(board: Board): Promise<ListOverride[]> {
 }
 
 /** The board's items, ranked for the format preview. */
-async function sampleItemsForBoard(boardId: string): Promise<Item[]> {
-  const listIds = await db.lists.where("board_id").equals(boardId).primaryKeys();
-  return rankSampleItems(await db.items.where("list_id").anyOf(listIds).toArray());
+async function sampleItemsForBoard(board: Board): Promise<Item[]> {
+  const listIds = await db.lists.where("board_id").equals(board.id).primaryKeys();
+  return rankSampleItems(await itemsWithOverlay(board, await db.items.where("list_id").anyOf(listIds).toArray()));
 }
 
 function brokenListsMessage(names: string[]): string {
@@ -86,7 +87,7 @@ const BoardFormModal: Component<Props> = (props) => {
       setSampleItems([]);
       setListOverrides([]);
       if (props.initial) {
-        sampleItemsForBoard(props.initial.id).then(setSampleItems).catch(console.error);
+        sampleItemsForBoard(props.initial).then(setSampleItems).catch(console.error);
         listOverridesForBoard(props.initial).then(setListOverrides).catch(console.error);
       }
       setSchema(props.initial?.schema ?? []);

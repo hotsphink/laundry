@@ -1,6 +1,6 @@
-import { ENTITY_SCHEMA_VERSION, computeOverlay, orderResults, withOverlay, type Board, upgradeBoardRecord, upgradeListRecord, type AttributeDefinition, type FormatSpec, type Integration, type Item, type ItemChoice, type List, type ViewMode } from "@listr/shared";
+import { ENTITY_SCHEMA_VERSION, type Board, upgradeBoardRecord, upgradeListRecord, type AttributeDefinition, type FormatSpec, type Integration, type Item, type ItemChoice, type List, type ViewMode } from "@listr/shared";
 import { db } from "./database.js";
-import { boardAttributeMaps } from "../utils/integrationConfig.js";
+import { itemsWithOverlay } from "./overlay.js";
 import { syncClient } from "../sync/SyncClient.js";
 import { deleteBoard, deleteList, deleteItem, resolveChain } from "./operations.js";
 import { assetToSync, assetFromSync, registerAsset } from "../sync/assetStore.js";
@@ -157,14 +157,7 @@ export function extractReferencedAssetIds(
 
 /** Items as the export writes them: with integration values overlaid only when asked. */
 async function itemsForExport(board: Board, items: Item[], options: ExportOptions): Promise<Item[]> {
-  if (!options.integrationValues || !items.length) return items;
-  const results = await db.integration_results.where("item_id").anyOf(items.map((i) => i.id)).toArray();
-  if (!results.length) return items;
-  const maps = boardAttributeMaps(board);
-  return items.map((item) => {
-    const own = orderResults(results.filter((r) => r.item_id === item.id), board.integrations);
-    return withOverlay(item, computeOverlay(item, own, board.schema, maps));
-  });
+  return options.integrationValues ? itemsWithOverlay(board, items) : items;
 }
 
 async function exportAssetsByIds(ids: Set<string>): Promise<ExportedAsset[]> {
