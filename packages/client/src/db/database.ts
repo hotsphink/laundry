@@ -369,6 +369,29 @@ export class ListrDB extends Dexie {
         row.integrations = row.integrations.filter((cfg: { config?: unknown }) => cfg.config === undefined || typeof cfg.config === "string");
       });
     });
+
+    // Version 7 dropped integration results without rewinding the sync
+    // cursors, so results the server made before the upgrade never arrive.
+    // Reset the cursors so the next connect pulls everything again.
+    this.version(8).stores({
+      boards: "id, position, updated_at",
+      lists: "id, board_id, position, updated_at",
+      items: "id, list_id, after_id, title, updated_at",
+      sync_config: "id",
+      tombstones: "id, entity_type, deleted_at",
+      assets: "id, updated_at",
+      sync_endpoints: "id, position",
+      key_sync_state: "key",
+      shared_keys: "key",
+      integration_results: "id, item_id, integration_id, status, updated_at",
+      board_groups: "key",
+      board_server_binding: "board_id",
+      client_identity: "id",
+      server_identity: "server_id",
+      pending_import: "id",
+    }).upgrade(async (tx) => {
+      await tx.table("key_sync_state").clear();
+    });
   }
 }
 
