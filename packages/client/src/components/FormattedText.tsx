@@ -4,7 +4,7 @@ import { assetUrls } from "../sync/assetStore.js";
 
 // Format output is synced data that anyone sharing a sync key can write, so
 // sanitize it to this small vocabulary (see doc/FORMAT.md).
-const ALLOWED_TAGS = ["b", "i", "em", "strong", "u", "s", "span", "img", "a"];
+const ALLOWED_TAGS = ["b", "i", "em", "strong", "u", "s", "span", "img", "a", "br"];
 const ALLOWED_ATTR = ["href", "src", "alt", "target", "rel", "class"];
 // DOMPurify additionally admits data: URLs on img (its DATA_URI_TAGS).
 const ALLOWED_URI_REGEXP = /^(?:https?:|blob:)/i;
