@@ -86,6 +86,8 @@ export interface List {
   /** null = use the board's format. An override replaces it entirely. */
   format: FormatSpec | null;
   view_mode: ViewMode;
+  /** Values for LIST_SCHEMA attributes. A missing key uses the schema default. */
+  attributes?: Record<string, unknown>;
   created_at: number;
   updated_at: number;
   /** Data-shape version this record was authored under. Missing = pre-versioning (treat as 1). */

@@ -177,6 +177,9 @@ and be ignored at display time.
     "2h5m"). Dates have a short form too (eg "Sep 23").
   * An unknown variant, or one that does not apply to the attribute's type, is
     an error.
+* `[list.name]` - an attribute of the item's list rather than the item. See
+  "List attributes" below. `list.name` works anywhere an attribute name does,
+  including `@list.name` and `[?list.name]`.
 * `[name/fallback]` - like `[name]` if `name` is set, else `fallback` (expanded)
 * `[name(arg1, arg2)]` - call a parameterized derived attribute (see
   "Definitions"). Arguments are text, like fallbacks, so `[name([title])]`
@@ -352,6 +355,24 @@ set in others. The definition of unset is: `undefined`, `null`, `""`, `[]`, or
 * `1h3m`, `2h`, `90m` for durations. Also allow bare numbers, and interpret as
   minutes.
 * There are no literals for dates.
+
+## List attributes
+
+Lists have their own attributes, with a fixed schema that users cannot change
+(yet). A format refers to them with a `list.` prefix. They are always set,
+since an unset list attribute uses its default.
+
+* `list.display` - an enum, `brief` (the default) or `verbose`. The `*` button
+  in a list's header toggles it. Use it to switch every item in a list between
+  a short and a long form:
+
+      [title][more]
+
+      more=if @list.display == "verbose":
+        " ?[notes]"
+      end
+
+The format editor's preview has a Display selector for trying both values.
 
 ## Overrides
 

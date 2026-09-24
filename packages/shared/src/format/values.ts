@@ -3,6 +3,7 @@
 
 import type { AttributeDefinition, AttributeType, Item } from "../types.js";
 import type { CmpOp, LiteralValue } from "./ast.js";
+import { LIST_ATTR_PREFIX, LIST_SCHEMA, listAttribute } from "../list-attributes.js";
 
 export type ValueType = "str" | "num" | "bool" | "todo" | "date" | "tags";
 
@@ -56,12 +57,20 @@ export function isTruthy(v: unknown): boolean {
   return isSet(v) && v !== 0 && v !== false;
 }
 
+const LIST_TYPES = new Map(LIST_SCHEMA.map((d) => [LIST_ATTR_PREFIX + d.key, d.type]));
+
 export function attrType(key: string, schema: Map<string, AttributeDefinition>): AttributeType | undefined {
-  return BUILTIN_TYPES[key] ?? schema.get(key)?.type;
+  return BUILTIN_TYPES[key] ?? LIST_TYPES.get(key) ?? schema.get(key)?.type;
 }
 
-/** The stored value of an attribute, with absent booleans read as false. */
-export function rawValue(item: Item, key: string, type: AttributeType | undefined): unknown {
+/**
+ * The stored value of an attribute, with absent booleans read as false.
+ * `list.*` names read from the item's list attributes.
+ */
+export function rawValue(
+  item: Item, key: string, type: AttributeType | undefined, listAttrs?: Record<string, unknown>,
+): unknown {
+  if (LIST_TYPES.has(key)) return listAttribute(listAttrs, key.slice(LIST_ATTR_PREFIX.length));
   if (key === "title") return item.title;
   if (key === "created_at") return new Date(item.created_at).toISOString();
   if (key === "updated_at") return new Date(item.updated_at).toISOString();

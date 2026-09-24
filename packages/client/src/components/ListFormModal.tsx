@@ -124,6 +124,7 @@ const ListFormModal: Component<Props> = (props) => {
                   schema={board().schema}
                   base={board().format.text}
                   sampleItems={sampleItems()}
+                  listAttributes={props.initial?.attributes}
                   placeholder={board().format.text.split("\n")[0]}
                 />
                 <Show when={formatError()}>

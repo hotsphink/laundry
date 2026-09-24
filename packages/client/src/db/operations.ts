@@ -331,7 +331,9 @@ export async function cloneBoard(sourceId: string, options: CloneBoardOptions): 
   const lists = await db.lists.where("board_id").equals(sourceId).sortBy("position");
   for (const list of lists) {
     const copy = await createList(list.name, board.id);
-    await updateList(copy.id, { icon: list.icon, format: list.format, view_mode: list.view_mode });
+    await updateList(copy.id, {
+      icon: list.icon, format: list.format, view_mode: list.view_mode, attributes: list.attributes,
+    });
     if (options.lists !== "items") continue;
 
     // Copy attribute values verbatim, timestamp attributes and integration picks included, in the same order.
@@ -470,11 +472,18 @@ export async function createList(
 
 export async function updateList(
   id: string,
-  updates: Partial<Pick<List, "name" | "icon" | "position" | "format" | "view_mode" | "board_id">>,
+  updates: Partial<Pick<List, "name" | "icon" | "position" | "format" | "view_mode" | "board_id" | "attributes">>,
 ): Promise<void> {
   await db.lists.update(id, { ...updates, updated_at: now(), schema_version: ENTITY_SCHEMA_VERSION });
   const updated = await db.lists.get(id);
   if (updated) syncClient.pushEntity("list", updated);
+}
+
+/** Set one list attribute, keeping the others. */
+export async function updateListAttribute(id: string, key: string, value: unknown): Promise<void> {
+  const list = await db.lists.get(id);
+  if (!list) return;
+  await updateList(id, { attributes: { ...list.attributes, [key]: value } });
 }
 
 export async function deleteList(id: string): Promise<void> {

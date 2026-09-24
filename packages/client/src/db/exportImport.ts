@@ -91,6 +91,7 @@ interface ExportedList {
   /** Legacy (export versions 1 and 2), converted on import. */
   format_string?: string | null;
   view_mode: ViewMode;
+  attributes?: Record<string, unknown>;
   items: ExportedItem[];
 }
 
@@ -174,6 +175,7 @@ function buildListEntry(list: List, items: Item[]) {
     position: list.position,
     format: list.format,
     view_mode: list.view_mode,
+    ...(list.attributes ? { attributes: list.attributes } : {}),
     items: items.map((item) => ({
       id: item.id,
       title: item.title,
@@ -460,6 +462,7 @@ export async function applyNativeImport(doc: NativeExport, options: ImportOption
           icon: list.icon,
           format: listFormat,
           view_mode: list.view_mode,
+          ...(list.attributes ? { attributes: list.attributes } : {}),
           updated_at: timestamp,
           schema_version: ENTITY_SCHEMA_VERSION,
         });
@@ -473,6 +476,7 @@ export async function applyNativeImport(doc: NativeExport, options: ImportOption
           position: list.position,
           format: listFormat,
           view_mode: list.view_mode,
+          ...(list.attributes ? { attributes: list.attributes } : {}),
           created_at: timestamp,
           updated_at: timestamp,
           schema_version: ENTITY_SCHEMA_VERSION,

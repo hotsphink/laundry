@@ -1,5 +1,5 @@
 import { type Component, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
-import { compileFormat, escapeFormatText, formatDiagnostic, isSet, type AttributeDefinition, type Item } from "@listr/shared";
+import { compileFormat, escapeFormatText, formatDiagnostic, isSet, LIST_ATTR_PREFIX, LIST_SCHEMA, listDisplay, type AttributeDefinition, type Item, type ListDisplay } from "@listr/shared";
 import FormattedText from "./FormattedText.js";
 import { createAsset } from "../db/assets.js";
 import { assetUrls } from "../sync/assetStore.js";
@@ -13,6 +13,8 @@ interface Props {
   base?: string;
   /** Items to choose a live preview from, best first (see rankSampleItems). */
   sampleItems?: Item[];
+  /** Attributes of the list being edited, for the preview's initial display. */
+  listAttributes?: Record<string, unknown>;
   placeholder?: string;
 }
 
@@ -155,11 +157,17 @@ const FormatEditor: Component<Props> = (props) => {
     return items.find((i) => i.id === sampleId()) ?? items[0];
   };
 
+  const [display, setDisplay] = createSignal<ListDisplay>("brief");
+  createEffect(() => setDisplay(listDisplay({ attributes: props.listAttributes })));
+
   const preview = createMemo(() => {
     const item = sampleItem();
     if (!item) return undefined;
     const urls = assetUrls();
-    return compiled().render(item, { urlResolver: (url) => urls[url] ?? url });
+    return compiled().render(item, {
+      urlResolver: (url) => urls[url] ?? url,
+      listAttributes: { ...props.listAttributes, display: display() },
+    });
   });
 
   return (
@@ -222,7 +230,8 @@ const FormatEditor: Component<Props> = (props) => {
       </Show>
       <div class="field-hint" id={`${props.id}-hint`}>
         Line 1 is the display format. Available: [title]
-        {props.schema.length > 0 ? ", " + props.schema.map((a) => `[${a.key}]`).join(", ") : ""}.
+        {props.schema.length > 0 ? ", " + props.schema.map((a) => `[${a.key}]`).join(", ") : ""}
+        {", " + LIST_SCHEMA.map((a) => `[${LIST_ATTR_PREFIX}${a.key}]`).join(", ")}.
         After a blank line, <code>name="..."</code> defines a derived attribute. Drop, paste, or upload
         images to insert them as assets. Ctrl-Enter saves. See doc/FORMAT.md for the full language.
       </div>
@@ -239,6 +248,15 @@ const FormatEditor: Component<Props> = (props) => {
                 <For each={props.sampleItems}>
                   {(item) => <option value={item.id}>{item.title}</option>}
                 </For>
+              </select>
+              <label for={`${props.id}-display`}>Display</label>
+              <select
+                id={`${props.id}-display`}
+                value={display()}
+                onChange={(e) => setDisplay(e.currentTarget.value as ListDisplay)}
+              >
+                <option value="brief">brief</option>
+                <option value="verbose">verbose</option>
               </select>
             </div>
             <div class="format-preview">

@@ -18,6 +18,8 @@ class ParseError extends Error {
 
 const IDENT_START = /[A-Za-z_]/;
 const IDENT_CHAR = /[A-Za-z0-9_]/;
+/** An attribute name in a reference or condition, possibly qualified, eg `list.display`. */
+const ATTR_NAME = /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?/;
 const STYLE_CHAR = /[A-Za-z0-9_-]/;
 const TODO_WORDS = new Set(["unchecked", "done", "cancelled", "skipped"]);
 
@@ -131,6 +133,13 @@ class Parser {
     if (!IDENT_START.test(this.src[this.i] ?? "")) this.fail("expected a name");
     while (this.i < this.src.length && IDENT_CHAR.test(this.src[this.i])) this.i++;
     return this.src.slice(start, this.i);
+  }
+
+  private readAttrName(): string {
+    const name = ATTR_NAME.exec(this.src.slice(this.i))?.[0];
+    if (!name) this.fail("expected a name");
+    this.i += name.length;
+    return name;
   }
 
   /** Index of the `close` matching the `open` at `start`, honoring nesting and backslash escapes. */
@@ -645,7 +654,7 @@ class Parser {
       if (close < 0) this.fail("unclosed '[?'");
       const inner = this.src.slice(this.i + 1, close);
       const names = inner.split(",").map((s) => s.trim());
-      if (!names.every((n) => /^\?[A-Za-z_][A-Za-z0-9_]*$/.test(n))) this.fail("expected [?name] or [?a,?b,...]");
+      if (!names.every((n) => n.startsWith("?") && ATTR_NAME.exec(n.slice(1))?.[0] === n.slice(1))) this.fail("expected [?name] or [?a,?b,...]");
       this.i = close + 1;
       return { k: "set", names: names.map((n) => n.slice(1)), pos: this.pos(start) };
     }
@@ -675,7 +684,7 @@ class Parser {
     const pos = this.pos(start);
     if (this.src[this.i] === "@") {
       this.i++;
-      return { k: "attr", name: this.readIdent(), pos };
+      return { k: "attr", name: this.readAttrName(), pos };
     }
     if (this.isStringStart()) {
       const c = this.src[this.i];
@@ -787,7 +796,7 @@ class Parser {
       else this.error("invalid reference; expected [name], [name(args)], [name:variant], or [name/fallback] (write \\[ for a literal bracket)", start - 1);
       return null;
     };
-    const name = /^[A-Za-z_][A-Za-z0-9_]*/.exec(this.src.slice(start, end))?.[0];
+    const name = ATTR_NAME.exec(this.src.slice(start, end))?.[0];
     if (!name) return invalid();
     let j = start + name.length;
     let args: Expr[] | undefined;

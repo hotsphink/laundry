@@ -396,6 +396,31 @@ describe("list formats inherit from the board", () => {
   });
 });
 
+describe("list attributes", () => {
+  const listRender = (text: string, display?: string) =>
+    compileFormat(text, S).render(item("Alien", { notes: "N" }), display ? { listAttributes: { display } } : {}).html;
+
+  it("reads list.display, defaulting to brief", () => {
+    expect(listRender("[title] [list.display]")).toBe("Alien brief");
+    expect(listRender("[title] [list.display]", "verbose")).toBe("Alien verbose");
+  });
+
+  it("works in conditions and match", () => {
+    const text = "[title][more]\n\nmore=if @list.display == \"verbose\": \" ([notes])\" end";
+    expect(listRender(text)).toBe("Alien");
+    expect(listRender(text, "verbose")).toBe("Alien (N)");
+    const m = "[title]\nwrap as top:\n  match @list.display:\n    \"verbose\" => \"[top]!\".\n    else => \"[top]\".\n  end\nend";
+    expect(listRender(m, "verbose")).toBe("Alien!");
+    expect(listRender(m)).toBe("Alien");
+    expect(listRender("[title]\ntooltip: cond([?list.display], \"set\") end\n")).toBe("Alien");
+  });
+
+  it("reports unknown list attributes", () => {
+    expect(errors("[list.nope]")).toEqual(["1:1: unknown attribute 'list.nope'"]);
+    expect(errors("[title]\n\nx=cond(@list.nope, \"a\")")).toEqual(["3:8: unknown attribute 'list.nope'"]);
+  });
+});
+
 describe("parameterized definitions", () => {
   it("binds parameters to the call's arguments", () => {
     const text = [

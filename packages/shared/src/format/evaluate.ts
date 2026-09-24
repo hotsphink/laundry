@@ -17,6 +17,8 @@ export interface Run {
 export interface RenderOptions {
   /** Rewrite link and image URLs, eg `hash://...` to `blob:...`. */
   urlResolver?: (url: string) => string;
+  /** Attributes of the list being rendered, read by `list.*` names. */
+  listAttributes?: Record<string, unknown>;
 }
 
 const MAX_DEPTH = 64;
@@ -163,7 +165,7 @@ export class Evaluator {
   private nameIsSet(name: string, env: Env, args?: Expr[]): boolean {
     if (!env.has(name) && this.isAttribute(name)) {
       const type = attrType(name, this.schema);
-      return isSet(rawValue(this.item, name, type));
+      return isSet(rawValue(this.item, name, type, this.opts.listAttributes));
     }
     const runs = this.sandbox((out) => this.evalNamed(name, args, out, env));
     return !isEmptyRuns(runs);
@@ -208,7 +210,7 @@ export class Evaluator {
     let set: boolean;
     const type = locals.has(ref.name) ? undefined : attrType(ref.name, this.schema);
     if (type !== undefined) {
-      const raw = rawValue(this.item, ref.name, type);
+      const raw = rawValue(this.item, ref.name, type, this.opts.listAttributes);
       set = isSet(raw);
       if (set || (type === "todo" && !ref.fallback)) {
         this.emit(value, renderValue(raw, type, ref.name, ref.variant), false);
@@ -315,7 +317,7 @@ export class Evaluator {
     switch (op.k) {
       case "attr": {
         const type = attrType(op.name, this.schema);
-        return typedValue(rawValue(this.item, op.name, type), type);
+        return typedValue(rawValue(this.item, op.name, type, this.opts.listAttributes), type);
       }
       case "lit":
         return literalTyped(op.value);
@@ -331,7 +333,7 @@ export class Evaluator {
       case "truthy": {
         const type = attrType(cond.name, this.schema);
         if (type === undefined) return false;
-        return isTruthy(rawValue(this.item, cond.name, type));
+        return isTruthy(rawValue(this.item, cond.name, type, this.opts.listAttributes));
       }
       case "set":
         return cond.names.every((n) => this.nameIsSet(n, locals));

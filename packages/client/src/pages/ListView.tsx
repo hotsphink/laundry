@@ -3,10 +3,10 @@ import { createStore, reconcile } from "solid-js/store";
 import { from } from "solid-js";
 import { useParams, useLocation } from "@solidjs/router";
 import { liveQuery } from "dexie";
-import { applyPick, compileFormat, computeOverlay, resolveOverlay, effectiveValue, effectiveValues, orderResults, upgradeBoardRecord, withOverlay, type CompiledFormat, type Overlay, type RenderedFormat } from "@listr/shared";
+import { applyPick, compileFormat, computeOverlay, listDisplay, resolveOverlay, effectiveValue, effectiveValues, orderResults, upgradeBoardRecord, withOverlay, type CompiledFormat, type Overlay, type RenderedFormat } from "@listr/shared";
 import type { AttributeDefinition, Board, Integration, IntegrationResult, Item, List, IntegrationStatus, TodoState } from "@listr/shared";
 import { db } from "../db/database.js";
-import { createItem, updateItem, updateItemAttribute, deleteItem, updateList, deleteList, createList, resolveChain, updateBoard, deleteBoard, computeCrossListMove } from "../db/operations.js";
+import { createItem, updateItem, updateItemAttribute, deleteItem, updateList, updateListAttribute, deleteList, createList, resolveChain, updateBoard, deleteBoard, computeCrossListMove } from "../db/operations.js";
 import { requestExport } from "../store/exportRequest.js";
 import { menuPosition } from "../utils/menuPosition.js";
 import ImportModal from "../components/ImportModal.js";
@@ -441,7 +441,10 @@ const ListView: Component = () => {
 
   const formatItem = (item: Item, list: List): RenderedFormat => {
     const urls = assetUrls();
-    return compiledFormat()(list.format?.text).render(shown(item), { urlResolver: (url) => urls[url] ?? url });
+    return compiledFormat()(list.format?.text).render(shown(item), {
+      urlResolver: (url) => urls[url] ?? url,
+      listAttributes: list.attributes,
+    });
   };
 
   const ItemText: Component<{ item: Item; list: List }> = (p) => {
@@ -1045,6 +1048,14 @@ const ListView: Component = () => {
                           <span class="multi-list-column-name">{list.name}</span>
                           <span class="count">{items().length}<span class="sr-only"> items</span></span>
                         </button>
+                        <button
+                          class="btn-icon btn-icon-quiet multi-list-display-btn"
+                          type="button"
+                          aria-label={`Verbose display for ${list.name}`}
+                          title="Toggle brief or verbose display"
+                          aria-pressed={listDisplay(list) === "verbose"}
+                          onClick={() => updateListAttribute(list.id, "display", listDisplay(list) === "verbose" ? "brief" : "verbose")}
+                        >*</button>
                         <button
                           class="btn-icon btn-icon-quiet multi-list-add-btn"
                           type="button"

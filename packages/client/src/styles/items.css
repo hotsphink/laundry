@@ -107,8 +107,12 @@
   flex-shrink: 1;
 }
 
-.multi-list-add-btn {
+.multi-list-display-btn {
   margin-left: auto;
+}
+
+.multi-list-display-btn[aria-pressed="true"] {
+  color: var(--accent);
 }
 
 /* Matches a column in width, and deliberately not a snap target: the board
