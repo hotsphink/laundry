@@ -40,6 +40,7 @@ optional, and a missing file just means defaults.
 
 | Key | Meaning |
 | --- | --- |
+| `host` | Address to listen on. Defaults to `0.0.0.0`, every interface. Set `127.0.0.1` when a reverse proxy on the same machine is the only way in. |
 | `port` | Defaults to 10000. |
 | `tls` | HTTPS is the default. It reads `certs/tailscale.key` and `certs/tailscale.crt` from the repo root, so a fresh checkout with no certs needs `tls: false`. The cert is checked at startup and every 12 hours; run `pnpm certs:refresh` and restart when it warns. |
 | `db_path` | Directory holding `listr.db`. Defaults to `data/` under the working directory. |

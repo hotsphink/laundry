@@ -50,6 +50,7 @@ const MAX_PULL_ENTITIES = 5000; // bounds the server's own per-pull work
 type DbApi = ReturnType<typeof createDbApi>;
 
 const PORT = config.port ?? 10_000;
+const HOST = config.host ?? "0.0.0.0";
 const CERT_DIR = join(dirname(fileURLToPath(import.meta.url)), "../../../certs");
 const CONSOLE_DIST = join(dirname(fileURLToPath(import.meta.url)), "../console/dist");
 
@@ -1020,8 +1021,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   });
 
   const proto = config.tls === false ? "ws" : "wss";
-  syncServer.httpServer.listen(PORT, "0.0.0.0", () => {
-    console.log(`Listr sync server on port ${PORT} (${config.tls === false ? "http" : "https"})`);
+  syncServer.httpServer.listen(PORT, HOST, () => {
+    console.log(`Listr sync server on ${HOST}:${PORT} (${config.tls === false ? "http" : "https"})`);
     console.log(`${proto.toUpperCase()}: ${proto}://finkripper.heron-moth.ts.net:${PORT}`);
   });
 

@@ -38,6 +38,8 @@ export interface Config {
    * is off. */
   tiers: ModelConfig[][];
   tls?: boolean;
+  /** Address to listen on. Missing = every interface. */
+  host?: string;
   port?: number;
   db_path?: string;
   variant: string;
@@ -262,6 +264,7 @@ export function loadConfig(): Config {
   }
   const config: Config = { variant, tiers: [] };
   config.tls = asBool(raw.tls);
+  config.host = asString(raw.host);
   config.port = asNumber(raw.port);
   config.db_path = asString(raw.db_path);
   config.allow_bootstrap = asBool(raw.allow_bootstrap);
