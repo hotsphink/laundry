@@ -134,6 +134,29 @@ export function computeChainDelete(
 }
 
 /**
+ * Compute the successor patches for deleting several items at once. Each
+ * surviving item that points at a deleted item is re-linked to the nearest
+ * predecessor that survives, skipping runs of deleted items.
+ */
+export function computeBulkChainDelete(
+  items: { id: string; after_id?: string | null }[],
+  deletedIds: Set<string>,
+): { id: string; after_id: string | null }[] {
+  const afterOf = new Map(items.map((i) => [i.id, i.after_id ?? null]));
+  const survivor = (id: string | null): string | null => {
+    const seen = new Set<string>();
+    while (id !== null && deletedIds.has(id) && !seen.has(id)) {
+      seen.add(id);
+      id = afterOf.get(id) ?? null;
+    }
+    return id !== null && deletedIds.has(id) ? null : id;
+  };
+  return items
+    .filter((i) => !deletedIds.has(i.id) && i.after_id != null && deletedIds.has(i.after_id))
+    .map((i) => ({ id: i.id, after_id: survivor(i.after_id!) }));
+}
+
+/**
  * Compute the chain repairs required when dragging an item from one list to
  * another. Returns patches for the source successor (which skips over the
  * moved item) and the target successor (which now follows the moved item).
@@ -619,6 +642,30 @@ export async function deleteItem(id: string): Promise<void> {
     if (updated) syncClient.pushEntity("item", updated);
   }
   syncClient.pushDelete("item", id);
+}
+
+/** Number of items above which a multi-item delete uses deleteItems. */
+export const BULK_DELETE_THRESHOLD = 3;
+
+/** Delete many items in one transaction, re-linking survivors past each run of deleted items. */
+export async function deleteItems(ids: string[]): Promise<void> {
+  const deleted = new Set(ids);
+  const timestamp = now();
+  const { existing, relinks } = await db.transaction("rw", db.items, async () => {
+    const existing = (await db.items.bulkGet(ids)).filter((i): i is Item => i !== undefined);
+    const successors = await db.items.where("after_id").anyOf(ids).toArray();
+    const relinks = computeBulkChainDelete([...existing, ...successors], deleted);
+    await db.items.bulkUpdate(relinks.map((r) => ({ key: r.id, changes: { after_id: r.after_id, updated_at: timestamp } })));
+    await db.items.bulkDelete(existing.map((i) => i.id));
+    return { existing, relinks };
+  });
+  if (existing.length === 0) return;
+  await db.integration_results.where("item_id").anyOf(existing.map((i) => i.id)).delete();
+
+  for (const updated of await db.items.bulkGet(relinks.map((r) => r.id))) {
+    if (updated) syncClient.pushEntity("item", updated);
+  }
+  syncClient.pushDeletes("item", existing.map((i) => i.id));
 }
 
 export async function bulkCreateItems(

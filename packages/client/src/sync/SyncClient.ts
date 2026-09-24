@@ -617,6 +617,11 @@ class SyncClient {
   }
 
   pushDelete(entityType: EntityType, entityId: string, deletedAt?: number): void {
+    this.pushDeletes(entityType, [entityId], deletedAt);
+  }
+
+  /** Tombstone several entities of one type, writing the local tombstones in one batch. */
+  pushDeletes(entityType: EntityType, entityIds: string[], deletedAt?: number): void {
     // The local tombstone row carries a single sync_key, falling back to
     // whichever primary connection's home key resolves first. That choice is
     // arbitrary once more than one server is primary (see getPrimaryServerId).
@@ -624,22 +629,26 @@ class SyncClient {
     // since home keys genuinely differ per server, so a tombstone really needs
     // a key *per server* rather than one column. That gap is still open.
     const fallbackHomeKey = [...this.primaries.values()][0]?.homeKeyForServer ?? "";
-    const syncKey = this.effectiveKeyForEntityId(entityType, entityId, fallbackHomeKey);
     const deleted_at = deletedAt ?? Date.now();
     db.tombstones
-      .put({ id: `${entityType}:${entityId}`, entity_type: entityType, entity_id: entityId, deleted_at, sync_key: syncKey })
+      .bulkPut(entityIds.map((entityId) => ({
+        id: `${entityType}:${entityId}`, entity_type: entityType, entity_id: entityId, deleted_at,
+        sync_key: this.effectiveKeyForEntityId(entityType, entityId, fallbackHomeKey),
+      })))
       .catch(console.error);
 
-    const boardId = this.boardIdForEntityId(entityType, entityId);
-    const boardBinding = boardId !== null ? (this.boardServerBinding.get(boardId) ?? null) : null;
-    const connections: PushRoutingConnection[] = [...this.primaries.entries()].map(([epId, c]) => ({
-      epId,
-      serverId: c.serverId,
-      keys: c.keys,
-      key: this.effectiveKeyForEntityId(entityType, entityId, c.homeKeyForServer),
-    }));
-    for (const t of connectionsForPush(boardBinding, connections)) {
-      this.primaries.get(t.epId)!.send({ type: "push_delete", entity_type: entityType, entity_id: entityId, deleted_at, sync_key: t.key });
+    for (const entityId of entityIds) {
+      const boardId = this.boardIdForEntityId(entityType, entityId);
+      const boardBinding = boardId !== null ? (this.boardServerBinding.get(boardId) ?? null) : null;
+      const connections: PushRoutingConnection[] = [...this.primaries.entries()].map(([epId, c]) => ({
+        epId,
+        serverId: c.serverId,
+        keys: c.keys,
+        key: this.effectiveKeyForEntityId(entityType, entityId, c.homeKeyForServer),
+      }));
+      for (const t of connectionsForPush(boardBinding, connections)) {
+        this.primaries.get(t.epId)!.send({ type: "push_delete", entity_type: entityType, entity_id: entityId, deleted_at, sync_key: t.key });
+      }
     }
   }
 

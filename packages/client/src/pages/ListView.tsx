@@ -6,7 +6,7 @@ import { liveQuery } from "dexie";
 import { applyPick, compileFormat, computeOverlay, listDisplay, resolveOverlay, effectiveValue, effectiveValues, orderResults, upgradeBoardRecord, withOverlay, type CompiledFormat, type Overlay, type RenderedFormat } from "@listr/shared";
 import type { AttributeDefinition, Board, Integration, IntegrationResult, Item, List, IntegrationStatus, TodoState } from "@listr/shared";
 import { db } from "../db/database.js";
-import { createItem, updateItem, updateItemAttribute, deleteItem, updateList, updateListAttribute, deleteList, createList, resolveChain, updateBoard, deleteBoard, computeCrossListMove } from "../db/operations.js";
+import { createItem, updateItem, updateItemAttribute, deleteItem, deleteItems, BULK_DELETE_THRESHOLD, updateList, updateListAttribute, deleteList, createList, resolveChain, updateBoard, deleteBoard, computeCrossListMove } from "../db/operations.js";
 import { requestExport } from "../store/exportRequest.js";
 import { menuPosition } from "../utils/menuPosition.js";
 import ImportModal from "../components/ImportModal.js";
@@ -605,7 +605,8 @@ const ListView: Component = () => {
   const handleDeleteSelectedItems = async () => {
     const ids = [...selectedItemIds()];
     if (!confirm(`Delete ${ids.length} item${ids.length !== 1 ? "s" : ""}?`)) return;
-    for (const id of ids) await deleteItem(id);
+    if (ids.length > BULK_DELETE_THRESHOLD) await deleteItems(ids);
+    else for (const id of ids) await deleteItem(id);
     setSelectedItemIds(new Set<string>());
     setItemCtxMenu(null);
   };

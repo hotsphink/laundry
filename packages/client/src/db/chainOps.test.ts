@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeChainInsert, computeChainDelete, computeCrossListMove, resolveChain } from "./operations.js";
+import { computeChainInsert, computeChainDelete, computeBulkChainDelete, computeCrossListMove, resolveChain } from "./operations.js";
 
 // Build a chain from an ordered array of ids.
 function chain(ids: string[]): { id: string; after_id: string | null }[] {
@@ -188,5 +188,40 @@ describe("computeCrossListMove", () => {
     const movedInTarget = { id: "s2", after_id: "t1" };
     const updates = [movedInTarget, ...(targetSuccessorUpdate ? [targetSuccessorUpdate] : [])];
     expect(applyAndOrder([...tgt, movedInTarget], updates)).toEqual(["t1", "s2", "t2", "t3"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeBulkChainDelete
+// ---------------------------------------------------------------------------
+
+describe("computeBulkChainDelete", () => {
+  const order = (ids: string[], deleted: string[]) => {
+    const items = chain(ids);
+    const del = new Set(deleted);
+    return applyAndOrder(items.filter((i) => !del.has(i.id)), computeBulkChainDelete(items, del));
+  };
+
+  it("skips a run of consecutive deleted items", () => {
+    expect(computeBulkChainDelete(chain(["a", "b", "c", "d"]), new Set(["b", "c"])))
+      .toEqual([{ id: "d", after_id: "a" }]);
+  });
+
+  it("re-links to the head when the deleted run starts the list", () => {
+    expect(computeBulkChainDelete(chain(["a", "b", "c"]), new Set(["a", "b"])))
+      .toEqual([{ id: "c", after_id: null }]);
+  });
+
+  it("keeps the order of survivors across scattered deletes", () => {
+    expect(order(["a", "b", "c", "d", "e", "f", "g"], ["a", "c", "d", "g"])).toEqual(["b", "e", "f"]);
+  });
+
+  it("returns nothing when the tail run is deleted", () => {
+    expect(computeBulkChainDelete(chain(["a", "b", "c"]), new Set(["b", "c"]))).toEqual([]);
+  });
+
+  it("terminates on a cycle among deleted items", () => {
+    const items = [{ id: "a", after_id: "b" }, { id: "b", after_id: "a" }, { id: "c", after_id: "a" }];
+    expect(computeBulkChainDelete(items, new Set(["a", "b"]))).toEqual([{ id: "c", after_id: null }]);
   });
 });
