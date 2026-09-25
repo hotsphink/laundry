@@ -21,6 +21,10 @@ import type { RunnerOptions } from "./integration-runner.js";
 import { Monitor } from "./console-api/monitor.js";
 import { ConsoleRouter } from "./console-api/router.js";
 
+/** How far back `ok.extra_devices` reaches. Long enough for a device that
+ * was offline for a while to still hear about one. */
+const EXTRA_DEVICE_NOTICE_MS = 7 * 24 * 60 * 60 * 1000;
+
 // Entity types clients may push or delete.
 const SYNCED_ENTITY_TYPES = new Set<string>(["board", "list", "item", "asset"]);
 
@@ -368,6 +372,18 @@ export function createSyncServer(dbApi: DbApi, opts: SyncServerOptions = {}): Sy
     }
   }
 
+  /** Tell a user's other open connections that a spent link just added a
+   * browser to their account. Connections that are offline hear about it in
+   * their next `ok` instead. */
+  function notifyExtraDevice(homeKey: string, newClientId: string, label: string | null, sender: WebSocket): void {
+    const conns = homeKeyToClients.get(homeKey);
+    if (!conns) return;
+    const json = JSON.stringify({ type: "device_added", client_id: newClientId, label, at: Date.now() });
+    for (const client of conns) {
+      if (client !== sender && client.readyState === WebSocket.OPEN) client.send(json);
+    }
+  }
+
   const integrationRunner = new IntegrationRunner(
     dbApi, opts.integrationModules ?? INTEGRATIONS, opts.integrations ?? {}, broadcast,
     { ...opts.integrationRunner, observer: monitor.runObserver },
@@ -483,6 +499,12 @@ export function createSyncServer(dbApi: DbApi, opts: SyncServerOptions = {}): Sy
         user_keys: userKeys,
         integrations: integrationRunner.describe(),
         server_time: Date.now(),
+        // Browsers recently added to this account by reusing a spent link.
+        // Every device hears about them, so an unexpected one gets noticed.
+        // The client remembers which it has shown.
+        extra_devices: dbApi
+          .listExtraDevicesSince(user.user_id, Date.now() - EXTRA_DEVICE_NOTICE_MS)
+          .filter((d) => d.client_id !== clientId),
       }));
     }
 
@@ -669,15 +691,20 @@ export function createSyncServer(dbApi: DbApi, opts: SyncServerOptions = {}): Sy
           return;
         }
         const label = typeof msg.label === "string" && msg.label ? msg.label : null;
+        // Sent only when the user says they already joined with this link in
+        // another browser. See db.ts's redeemExtraDevice.
+        const extraDevice = msg.extra_device === true;
 
         let result: ReturnType<typeof dbApi.redeemGrant>;
         try {
-          result = dbApi.redeemGrant(
-            grantId,
-            secret,
-            { clientId, pubkeyJwk: JSON.stringify(pubkeyJwk), label, existingUserId: userId ?? undefined },
-            Date.now(),
-          );
+          result = extraDevice
+            ? dbApi.redeemExtraDevice(grantId, secret, { clientId, pubkeyJwk: JSON.stringify(pubkeyJwk), label }, Date.now())
+            : dbApi.redeemGrant(
+              grantId,
+              secret,
+              { clientId, pubkeyJwk: JSON.stringify(pubkeyJwk), label, existingUserId: userId ?? undefined },
+              Date.now(),
+            );
         } catch (err) {
           ws.send(JSON.stringify({ type: "error", message: err instanceof Error ? err.message : String(err) }));
           return;
@@ -695,6 +722,7 @@ export function createSyncServer(dbApi: DbApi, opts: SyncServerOptions = {}): Sy
         // which is right by construction: the issuer's own device list is
         // unchanged.
         notifyClientsChanged(result.result.user.home_key, result.result.user.user_id);
+        if (extraDevice) notifyExtraDevice(result.result.user.home_key, clientId, label, ws);
         return;
       }
 

@@ -4,6 +4,7 @@ import { liveQuery } from "dexie";
 import { from } from "solid-js";
 import Sidebar from "./components/Sidebar.js";
 import ExportModal from "./components/ExportModal.js";
+import DeviceNotices from "./components/DeviceNotices.js";
 import ListView from "./pages/ListView.js";
 import AdminPage from "./pages/AdminPage.js";
 import TestRunner from "./pages/TestRunner.js";
@@ -104,6 +105,7 @@ const Layout: Component<{ children?: any }> = (props) => {
             <span aria-hidden="true">☰</span>
           </button>
         </Show>
+        <DeviceNotices />
         {props.children}
       </main>
       <ExportModal />

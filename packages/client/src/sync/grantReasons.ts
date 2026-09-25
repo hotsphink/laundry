@@ -22,6 +22,9 @@ export const GRANT_FAILURE_REASONS: ReadonlySet<string> = new Set([
   "expired",
   "used",
   "already_registered",
+  "extra_device_unavailable",
+  "extra_device_window",
+  "extra_device_limit",
   "cap_denied",
   // Not a grant failure as such, but the same rule applies: a rejected
   // set_client_label is a UI-level error on a healthy connection and must

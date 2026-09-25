@@ -32,6 +32,20 @@ function waitForMessage(ws: WebSocket): Promise<any> {
   });
 }
 
+/** The next message of type `type`, skipping any others. */
+function waitForMessageOfType(ws: WebSocket, type: string): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const onMessage = (raw: Buffer) => {
+      const msg = JSON.parse(raw.toString());
+      if (msg.type !== type) return;
+      ws.off("message", onMessage);
+      resolve(msg);
+    };
+    ws.on("message", onMessage);
+    ws.once("error", reject);
+  });
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -570,6 +584,50 @@ describe("redeem_grant: registration plumbing", () => {
     ws.send(JSON.stringify({ type: "auth", sig }));
     return p;
   }
+
+  // Joined in one browser, then needs another (Firefox, then Safari to
+  // install the app on iOS). Without the flag the spent link is refused as
+  // usual; with it, the new browser joins the first redeemer's account, and
+  // that account's other devices are told.
+  it("a spent guest link adds another browser only when extra_device is asked for", async () => {
+    const root = db.bootstrapRootUser(Date.now());
+    const { grantId, secret } = db.createGrant({ kind: "guest", issuerUserId: root.user_id, payload: "board-key" }, Date.now());
+
+    const firefox = await makeTestClient();
+    const wsFirefox = connect();
+    await getToNeedsGrant(wsFirefox, firefox);
+    const firstOk = waitForMessageOfType(wsFirefox, "ok");
+    wsFirefox.send(JSON.stringify({ type: "redeem_grant", grant_id: grantId, secret }));
+    const { user_id: userId } = await firstOk;
+
+    const safari = await makeTestClient();
+    const wsSafari = connect();
+    await getToNeedsGrant(wsSafari, safari);
+
+    const refused = waitForMessage(wsSafari);
+    wsSafari.send(JSON.stringify({ type: "redeem_grant", grant_id: grantId, secret }));
+    expect(await refused).toMatchObject({ type: "error", reason: "used" });
+
+    const notice = waitForMessageOfType(wsFirefox, "device_added");
+    const ok = waitForMessage(wsSafari);
+    wsSafari.send(JSON.stringify({ type: "redeem_grant", grant_id: grantId, secret, extra_device: true, label: "iPhone" }));
+    const safariOk = await ok;
+    expect(safariOk.type).toBe("ok");
+    expect(safariOk.user_id).toBe(userId);
+    expect(safariOk.user_keys.map((k: any) => k.key)).toContain("board-key");
+    expect(await notice).toMatchObject({ client_id: safari.clientId, label: "iPhone" });
+
+    // A device that was offline hears about it on its next connect.
+    wsFirefox.close();
+    const wsFirefoxAgain = connect();
+    const challenge = await sendHello(wsFirefoxAgain, firefox);
+    const againOk = waitForMessage(wsFirefoxAgain);
+    wsFirefoxAgain.send(JSON.stringify({ type: "auth", sig: await signFor(firefox, challenge.server_id, challenge.nonce) }));
+    expect((await againOk).extra_devices).toEqual([expect.objectContaining({ client_id: safari.clientId, label: "iPhone" })]);
+
+    wsFirefoxAgain.close();
+    wsSafari.close();
+  });
 
   it("an invite grant registers a brand-new client and returns ok on the same connection", async () => {
     const root = db.bootstrapRootUser(Date.now());

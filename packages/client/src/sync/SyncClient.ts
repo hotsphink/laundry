@@ -13,6 +13,7 @@ import { buildAuthPayload } from "./clientIdentity.js";
 import { exportPublicJwk, getOrCreateClientIdentity, signAuthPayload } from "./clientKeys.js";
 import { assetToSync, assetFromSync, registerAsset } from "./assetStore.js";
 import { GRANT_FAILURE_REASONS } from "./grantReasons.js";
+import { addDeviceNotices } from "../store/deviceNotices.js";
 import {
   setEndpointStatus,
   removeEndpointStatus,
@@ -315,6 +316,7 @@ class EndpointConnection {
     const displayName = typeof msg.display_name === "string" ? msg.display_name : null;
     const userKeys: ServerUserKey[] = Array.isArray(msg.user_keys) ? msg.user_keys : [];
     if (Array.isArray(msg.integrations)) setServerIntegrations(serverId, msg.integrations);
+    if (Array.isArray(msg.extra_devices)) addDeviceNotices(msg.extra_devices);
 
     // Batch the phase change with onReady, which registers this connection's
     // sender. UI effects run synchronously on the status change, and one that
@@ -514,11 +516,25 @@ class SyncClient {
    * already authenticated. This is just the wire call. The server's reply is
    * an ordinary `ok` or `error`, handled by the same EndpointConnection
    * message path as any other `ok`.
+   *
+   * `extraDevice` reuses a spent link to add this browser to the account of
+   * whoever spent it. Send it only when the user says that was them.
    */
-  redeemGrant(endpointId: string, grantId: string, secret: string, label?: string): void {
+  redeemGrant(
+    endpointId: string,
+    grantId: string,
+    secret: string,
+    opts: { label?: string | null; extraDevice?: boolean } = {},
+  ): void {
     const send = this.allSenders.get(endpointId);
     if (!send) throw new Error(`redeemGrant: endpoint ${endpointId} has no open connection`);
-    send({ type: "redeem_grant", grant_id: grantId, secret, label: label ?? null });
+    send({
+      type: "redeem_grant",
+      grant_id: grantId,
+      secret,
+      label: opts.label ?? null,
+      ...(opts.extraDevice ? { extra_device: true } : {}),
+    });
   }
 
   /**
@@ -1223,6 +1239,8 @@ class SyncClient {
       // is adopted, which cascades into pulling its data normally. The
       // reporting server is this connection's own server_id.
       this.adoptUserKeys([{ key: msg.key, name: msg.name ?? null }], this.readyServerId.get(epId) ?? null);
+    } else if (msg.type === "device_added") {
+      addDeviceNotices([{ client_id: msg.client_id, label: msg.label ?? null, at: msg.at }]);
     } else if (msg.type === "user_key_removed") {
       removeKeyLocal(msg.key).catch(console.error);
     } else if (msg.type === "grant_info" || msg.type === "grant_created" || msg.type === "clients" || msg.type === "display_name_set") {

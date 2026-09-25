@@ -11,6 +11,7 @@ import { countUnboundLocalBoards, discardUnboundLocalBoards } from "../db/operat
 import { setSidebarOpen } from "../store/sidebarStore.js";
 import { serverIdentities } from "../sync/primaryConnection.js";
 import { currentNonSafariIosBrowser } from "../utils/iosBrowser.js";
+import { currentBrowserLabel } from "../utils/browserLabel.js";
 
 type Step =
   | "invalid"
@@ -19,6 +20,7 @@ type Step =
   | "connecting" // matched an endpoint, waiting for the handshake to settle
   | "peeking" // connected, waiting for grant_info
   | "confirm" // grant_info in hand, showing the accept/keep-or-discard screen
+  | "extra_confirm" // link already used, confirming this is another browser of whoever used it
   | "joining" // redeem_grant sent, waiting for ok or an error
   | "success"
   | "error";
@@ -36,6 +38,9 @@ const REASON_MESSAGES: Record<string, string> = {
   burned: "Too many attempts were made with this link; it's no longer valid.",
   not_found: "This link doesn't match any invite on this server.",
   bad_secret: "This link looks corrupted.",
+  extra_device_window: "It's been too long since this link was first used to add another browser with it. Ask for a new link.",
+  extra_device_limit: "This link has already added as many browsers as it can. Ask for a new link.",
+  extra_device_unavailable: "This link can't add another browser. Ask for a new link.",
 };
 
 function reasonMessage(reason: string | undefined, fallback: string): string {
@@ -57,6 +62,7 @@ const JoinPage: Component = () => {
   const [manualHost, setManualHost] = createSignal("");
   const [manualPort, setManualPort] = createSignal(443);
   const [errorMessage, setErrorMessage] = createSignal<string | null>(null);
+  const [errorReason, setErrorReason] = createSignal<string | null>(null);
   const [grantInfo, setGrantInfo] = createSignal<GrantInfo | null>(null);
   const [unboundBoards, setUnboundBoards] = createSignal(0);
   const [keepChoice, setKeepChoice] = createSignal<"keep" | "discard" | null>(null);
@@ -222,6 +228,7 @@ const JoinPage: Component = () => {
         setGrantInfo({ kind: msg.kind, greeting: msg.greeting ?? null, issuerDisplayName: msg.issuer_display_name ?? null });
         setStep("confirm");
       } else if (msg.type === "error") {
+        setErrorReason(msg.reason ?? null);
         setErrorMessage(reasonMessage(msg.reason, msg.message ?? "That didn't work."));
         setStep("error");
       }
@@ -267,6 +274,25 @@ const JoinPage: Component = () => {
     try {
       syncClient.redeemGrant(epId, p.grantId, p.secret);
     } catch {
+      setErrorMessage("Lost the connection to that server before joining. Open the link again.");
+      setStep("error");
+    }
+  };
+
+  /** A used link can still add this browser for whoever used it, if that
+   * was this person in another browser. Never offered to a browser that
+   * already has an account here, which the server would refuse anyway. */
+  const canAddAsExtraDevice = () => errorReason() === "used" && !alreadyRegistered();
+
+  const doExtraDeviceJoin = () => {
+    const p = payload();
+    const epId = endpointId();
+    if (!p || !epId) return;
+    setStep("joining");
+    try {
+      syncClient.redeemGrant(epId, p.grantId, p.secret, { extraDevice: true, label: currentBrowserLabel() });
+    } catch {
+      setErrorReason(null);
       setErrorMessage("Lost the connection to that server before joining. Open the link again.");
       setStep("error");
     }
@@ -421,8 +447,35 @@ const JoinPage: Component = () => {
         <Show when={step() === "error"}>
           <h2>Couldn't join</h2>
           <p class="field-error" role="alert">{errorMessage()}</p>
+          <Show when={canAddAsExtraDevice()}>
+            <p class="field-hint">
+              If you used it yourself in another browser in the last few minutes, you can add this browser to that
+              account.
+            </p>
+          </Show>
           <div class="actions actions-center">
             <button class="btn-ghost" type="button" onClick={goHome}>Go home</button>
+            <Show when={canAddAsExtraDevice()}>
+              <button class="btn-primary" type="button" onClick={() => setStep("extra_confirm")}>
+                I already joined in another browser
+              </button>
+            </Show>
+          </div>
+        </Show>
+
+        <Show when={step() === "extra_confirm"}>
+          <h2>Add this browser?</h2>
+          <p>
+            This adds this browser to the account of whoever used this link. Only continue if that was you, in
+            another browser, in the last 10 minutes.
+          </p>
+          <p class="field-hint">
+            If someone else sent this link to several people, don't continue. Ask them for a link of your own.
+            Your other browser will be told about this one.
+          </p>
+          <div class="actions actions-center">
+            <button class="btn-ghost" type="button" onClick={() => setStep("error")}>Back</button>
+            <button class="btn-primary" type="button" onClick={doExtraDeviceJoin}>Yes, that was me</button>
           </div>
         </Show>
       </div>

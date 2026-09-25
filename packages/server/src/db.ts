@@ -58,6 +58,7 @@ export interface GrantRedemptionRow {
   user_id: string;
   client_id: string | null;
   sync_key: string | null;
+  extra_device: number;
 }
 
 export interface UserKeyRow {
@@ -106,14 +107,16 @@ const INTEGRATION_RESULTS_SQL = `
 
 // One row per successful redemption: which grant, who it made or reached, the
 // client that redeemed it, and the key it handed over. Nothing else ties a
-// grant to its outcome.
+// grant to its outcome. extra_device = 1 marks a spent link reused to add
+// another browser for the person who spent it (redeemExtraDevice).
 const GRANT_REDEMPTIONS_SQL = `
   CREATE TABLE IF NOT EXISTS grant_redemptions (
-    grant_id  TEXT NOT NULL,
-    at        INTEGER NOT NULL,
-    user_id   TEXT NOT NULL,
-    client_id TEXT,
-    sync_key  TEXT
+    grant_id     TEXT NOT NULL,
+    at           INTEGER NOT NULL,
+    user_id      TEXT NOT NULL,
+    client_id    TEXT,
+    sync_key     TEXT,
+    extra_device INTEGER NOT NULL DEFAULT 0
   );
   CREATE INDEX IF NOT EXISTS idx_grant_redemptions_grant ON grant_redemptions(grant_id);
 `;
@@ -636,6 +639,14 @@ function migrateV9Provenance(sql: Database.Database): void {
   sql.exec(GRANT_REDEMPTIONS_SQL);
 }
 
+// Migration 10: mark redemptions that added an extra device to whoever first
+// spent a link, so their count and window can be enforced.
+function migrateV10ExtraDevice(sql: Database.Database): void {
+  if (!hasColumn(sql, "grant_redemptions", "extra_device")) {
+    sql.exec(`ALTER TABLE grant_redemptions ADD COLUMN extra_device INTEGER NOT NULL DEFAULT 0`);
+  }
+}
+
 const MIGRATIONS: { version: number; run: (sql: Database.Database) => void }[] = [
   { version: 1, run: migrateV1LegacyColumnBaseline },
   { version: 2, run: migrateV2AssetKeys },
@@ -646,6 +657,7 @@ const MIGRATIONS: { version: number; run: (sql: Database.Database) => void }[] =
   { version: 7, run: migrateV7FormatSpec },
   { version: 8, run: migrateV8IntegrationOverlay },
   { version: 9, run: migrateV9Provenance },
+  { version: 10, run: migrateV10ExtraDevice },
 ];
 
 /** Highest schema version this build knows how to migrate a database to. */
@@ -717,6 +729,13 @@ const DEFAULT_GRANT_TTL_MS = 24 * 60 * 60 * 1000;
 // secret's entropy, is the real defense. 10 wrong guesses burn the grant
 // (uses_remaining forced to 0). The exact number is a judgment call.
 const MAX_GRANT_ATTEMPTS = 10;
+
+// A spent guest or invite link can add up to MAX_EXTRA_DEVICES more browsers
+// for whoever spent it, within EXTRA_DEVICE_WINDOW_MS of that first use. Long
+// enough to move from one browser to another, and short enough that a leaked
+// link is soon useless. See redeemExtraDevice.
+export const EXTRA_DEVICE_WINDOW_MS = 10 * 60 * 1000;
+export const MAX_EXTRA_DEVICES = 2;
 
 function tableFor(type: EntityType): string {
   if (type === "board") return "boards";
@@ -1662,7 +1681,9 @@ export function createDbApi(sql: Database.Database) {
     return { grantId, secret };
   }
 
-  type RedeemFailureReason = "not_found" | "burned" | "bad_secret" | "expired" | "used" | "already_registered";
+  type RedeemFailureReason =
+    | "not_found" | "burned" | "bad_secret" | "expired" | "used" | "already_registered"
+    | "extra_device_unavailable" | "extra_device_window" | "extra_device_limit";
 
   // The single-use guarantee: one atomic UPDATE, checked by `changes === 1`.
   // This is correct under concurrent attempts with no extra locking, because
@@ -1763,10 +1784,12 @@ export function createDbApi(sql: Database.Database) {
   // the issuer's existing user; share -> hand over a sync key, with no
   // identity effect; guest -> invite and share together, with provisional=1
   // and caps=['sync'] already forced by createGrant, not re-derived here.
-  function recordRedemption(grant: GrantRow, userId: string, clientId: string | undefined | null, syncKey: string | null, now: number): void {
+  function recordRedemption(
+    grant: GrantRow, userId: string, clientId: string | undefined | null, syncKey: string | null, now: number, extraDevice = false,
+  ): void {
     sql
-      .prepare(`INSERT INTO grant_redemptions (grant_id, at, user_id, client_id, sync_key) VALUES (?, ?, ?, ?, ?)`)
-      .run(grant.id, now, userId, clientId ?? null, syncKey);
+      .prepare(`INSERT INTO grant_redemptions (grant_id, at, user_id, client_id, sync_key, extra_device) VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(grant.id, now, userId, clientId ?? null, syncKey, extraDevice ? 1 : 0);
   }
 
   function applyGrantEffect(grant: GrantRow, effect: RedeemEffectParams, now: number): RedeemEffectResult {
@@ -1885,6 +1908,83 @@ export function createDbApi(sql: Database.Database) {
     return run();
   }
 
+  /**
+   * Add the calling browser as another device of the person who spent
+   * `grantId`. This is for someone who joined in one browser and then needs
+   * another, such as Firefox and then Safari on iOS to install the app. The
+   * client sends it only when the user explicitly says they already joined,
+   * so a second person who opens a spent invite is still told it is used. The
+   * request is not proof of identity, since anyone with the link can make it,
+   * which is what the window, the cap and the notice to the first device are
+   * for.
+   */
+  function redeemExtraDevice(
+    grantId: string,
+    secret: string,
+    effect: { clientId: string; pubkeyJwk: string; label?: string | null },
+    now: number,
+  ): { ok: true; result: RedeemEffectResult } | { ok: false; reason: RedeemFailureReason } {
+    const run = sql.transaction(() => {
+      const grant = getGrant(grantId);
+      if (!grant) return { ok: false as const, reason: "not_found" as const };
+      if (grant.attempts >= MAX_GRANT_ATTEMPTS) return { ok: false as const, reason: "burned" as const };
+
+      const hashRow = sql.prepare(`SELECT secret_hash FROM grants WHERE id = ?`).get(grantId) as { secret_hash: string };
+      if (hashSecret(secret) !== hashRow.secret_hash) {
+        sql.prepare(`UPDATE grants SET attempts = attempts + 1 WHERE id = ?`).run(grantId);
+        return { ok: false as const, reason: "bad_secret" as const };
+      }
+
+      if (getClientById(effect.clientId)) return { ok: false as const, reason: "already_registered" as const };
+      // Only kinds that register a person have a person to add a device to,
+      // and only a spent link needs this. An unspent one should just be
+      // redeemed.
+      if ((grant.kind !== "guest" && grant.kind !== "invite") || grant.uses_remaining > 0) {
+        return { ok: false as const, reason: "extra_device_unavailable" as const };
+      }
+      const rows = sql
+        .prepare(`SELECT * FROM grant_redemptions WHERE grant_id = ? ORDER BY at`)
+        .all(grantId) as GrantRedemptionRow[];
+      const firsts = rows.filter((r) => !r.extra_device);
+      // A many-use link spent by several people has no one person to attach to.
+      const userIds = new Set(firsts.map((r) => r.user_id));
+      if (firsts.length === 0 || userIds.size !== 1) {
+        return { ok: false as const, reason: "extra_device_unavailable" as const };
+      }
+      if (now - firsts[0].at > EXTRA_DEVICE_WINDOW_MS) return { ok: false as const, reason: "extra_device_window" as const };
+      if (rows.length - firsts.length >= MAX_EXTRA_DEVICES) return { ok: false as const, reason: "extra_device_limit" as const };
+
+      const user = getUser(firsts[0].user_id);
+      if (!user || getEffectiveState(user.user_id) !== "active") {
+        return { ok: false as const, reason: "extra_device_unavailable" as const };
+      }
+      const client = registerClient(
+        { clientId: effect.clientId, userId: user.user_id, pubkeyJwk: effect.pubkeyJwk, label: effect.label },
+        now,
+      );
+      recordRedemption(grant, user.user_id, effect.clientId, null, now, true);
+      logAuthEvent(
+        { kind: "grant_effect_extra_device", actorUserId: user.user_id, subjectUserId: user.user_id, detail: JSON.stringify({ grantId, clientId: effect.clientId }) },
+        now,
+      );
+      return { ok: true as const, result: { user, client } };
+    });
+    return run();
+  }
+
+  /** Devices added to `userId` through redeemExtraDevice since `since`, for
+   * telling that user's other devices about them. */
+  function listExtraDevicesSince(userId: string, since: number): { client_id: string; label: string | null; at: number }[] {
+    return sql
+      .prepare(
+        `SELECT r.client_id AS client_id, c.label AS label, r.at AS at
+           FROM grant_redemptions r LEFT JOIN clients c ON c.client_id = r.client_id
+          WHERE r.user_id = ? AND r.extra_device = 1 AND r.at > ? AND r.client_id IS NOT NULL
+          ORDER BY r.at`,
+      )
+      .all(userId, since) as { client_id: string; label: string | null; at: number }[];
+  }
+
   // -- Server identity maintenance -------------------------------------------
 
   // A cloned database carries the original's server_id, so give operators a
@@ -1920,6 +2020,7 @@ export function createDbApi(sql: Database.Database) {
     setUserState, getEffectiveState, promoteProvisionalUser, setAuthorizedBy, bootstrapRootUser, claimEmptyServer, grantAdminCap,
     getClientById, getClientsForUser, listAllClients, setClientLabel, registerClient, touchClientLastSeen, getUserForClient,
     createGrant, getGrant, listGrants, listGrantRedemptions, listAllUserKeys, attemptRedeemGrant, peekGrant, applyGrantEffect, redeemGrant,
+    redeemExtraDevice, listExtraDevicesSince,
     logAuthEvent, onAuthEvent, listAuthEvents, queryAuthEvents, resetServerId,
     getIntegrationResultStats,
   };

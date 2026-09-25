@@ -25,6 +25,7 @@ const GUEST_KEY_COLD = "e2e-guest-key-cold";
 const GUEST_KEY_WARM = "e2e-guest-key-warm";
 const SHARE_KEY = "e2e-share-key";
 const GUEST_KEY_IOS = "e2e-guest-key-ios";
+const GUEST_KEY_EXTRA = "e2e-guest-key-extra";
 
 test.describe.configure({ mode: "serial" });
 
@@ -149,6 +150,56 @@ test.describe("guest links", () => {
       await expect(page.locator(".receive-saved")).toContainText("You're in!", { timeout: 30_000 });
     } finally {
       await context.close();
+    }
+  });
+
+  // Joined in one browser, then opened the app in another, the way an iPhone
+  // user moves from Firefox to Safari to install it. The second browser
+  // pastes the spent link on the missing-board page, says it already joined,
+  // and lands on the same account. The first browser is told.
+  test("a spent link adds a second browser to the account that spent it", async ({ page, browser }) => {
+    test.setTimeout(120_000);
+    const link = server.issueGrant({ kind: "guest", payload: GUEST_KEY_EXTRA, greeting: "Errands" });
+    const route = { host: "localhost", port: server.port, secure: false, lastServerId: server.serverId };
+
+    await clearDatabase(page);
+    await addSyncEndpoint(page, route);
+    await page.goto(link);
+    await expect(page.locator(".receive-card h2")).toHaveText("You're invited", { timeout: 30_000 });
+    await page.getByRole("button", { name: "Join" }).click();
+    await expect(page.locator(".receive-saved")).toContainText("You're in!", { timeout: 30_000 });
+    await page.getByRole("button", { name: "Go to app" }).click();
+    const [firstIdentity] = await readStore<{ user_id: string }>(page, "server_identity");
+
+    const secondContext = await browser.newContext();
+    try {
+      const second = await secondContext.newPage();
+      await clearDatabase(second);
+      await addSyncEndpoint(second, route);
+      // The URL that gets copied between browsers: a board, with nothing behind it here.
+      await second.goto("/#/board/00000000-0000-4000-8000-000000000000");
+      await second.getByRole("button", { name: "Join with a link" }).click();
+      await second.locator("#join-link-input").fill(`${new URL(second.url()).origin}${link}`);
+      await second.getByRole("button", { name: "Use" }).click();
+
+      await expect(second.locator(".receive-card h2")).toHaveText("Couldn't join", { timeout: 30_000 });
+      await expect(second.locator(".field-error")).toHaveText("This link has already been used.");
+      await second.getByRole("button", { name: "I already joined in another browser" }).click();
+      await expect(second.locator(".receive-card h2")).toHaveText("Add this browser?");
+      await second.getByRole("button", { name: "Yes, that was me" }).click();
+      await expect(second.locator(".receive-saved")).toContainText("You're in!", { timeout: 30_000 });
+
+      const [secondIdentity] = await readStore<{ user_id: string }>(second, "server_identity");
+      expect(secondIdentity.user_id).toBe(firstIdentity.user_id);
+      const keys = await readStore<{ key: string }>(second, "shared_keys");
+      expect(keys.map((k) => k.key)).toContain(GUEST_KEY_EXTRA);
+
+      // The first browser, still connected, hears about it right away.
+      await expect(page.locator(".device-notice")).toContainText("was added to your account", { timeout: 30_000 });
+      await page.locator(".device-notice").getByRole("button", { name: "Dismiss" }).click();
+      await expect(page.locator(".device-notice")).toHaveCount(0);
+    } finally {
+      await secondContext.close();
     }
   });
 

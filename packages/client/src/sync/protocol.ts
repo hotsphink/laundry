@@ -22,4 +22,6 @@
 // v7: integration results are overlaid on items. `ok` lists the server's
 // integration modules, results gain `choices` and `not_found`, and items gain
 // `choices`. Additive: the server still accepts v6.
-export const PROTOCOL_VERSION = 7;
+// v8: redeem_grant's `extra_device` flag, `ok.extra_devices` and the
+// `device_added` message. Additive.
+export const PROTOCOL_VERSION = 8;

@@ -37,5 +37,8 @@
 // `ok` gains `integrations` (the modules on offer), results gain `choices` and
 // the `not_found` status, items gain `choices`, and board integration config is
 // TOML text. Additive, so v6 clients still connect: they ignore the new fields.
+// v8: redeem_grant takes `extra_device`, which adds the caller as another
+// device of whoever spent the link. `ok` gains `extra_devices`, and a new
+// `device_added` message reports one live. Additive, like v7.
 export const MIN_PROTOCOL_VERSION: number = 6;
-export const MAX_PROTOCOL_VERSION: number = 7;
+export const MAX_PROTOCOL_VERSION: number = 8;

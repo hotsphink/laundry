@@ -575,6 +575,16 @@
   text-align: center;
 }
 
+/* Two or three buttons can outgrow the narrow card, so wrap whole buttons
+ * rather than breaking their labels. */
+.receive-card .actions {
+  flex-wrap: wrap;
+}
+
+.receive-card .actions button {
+  white-space: nowrap;
+}
+
 .receive-card h2 {
   margin: 0 0 var(--space-5);
 }
@@ -584,6 +594,28 @@
 .join-keep-choice {
   margin-top: var(--space-6);
   text-align: left;
+}
+
+/* Another browser joined this account through a reused invite link. */
+.device-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-5);
+  margin: var(--space-5);
+  padding: var(--space-5);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius);
+  background: var(--warning-soft);
+}
+
+.device-notice p {
+  flex: 1;
+  margin: 0;
+}
+
+.device-notice a {
+  color: inherit;
+  text-decoration: underline;
 }
 
 /* Steers an iOS join away from a browser that can't install the app. */
@@ -598,6 +630,7 @@
 
 .join-browser-warning p {
   margin: 0;
+  font-size: var(--text-base);
 }
 
 .join-browser-warning p + p {

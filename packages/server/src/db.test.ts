@@ -553,7 +553,7 @@ describe("schema_version migrations", () => {
       const { grantId, secret } = db.createGrant({ kind: "share", issuerUserId: issuer.user_id, payload: "k" }, 100);
       db.redeemGrant(grantId, secret, { existingUserId: recipient.user_id }, 200);
       expect(db.listAllUserKeys().find((k) => k.user_id === recipient.user_id)?.source).toBe(`grant:${grantId}`);
-      expect(db.listGrantRedemptions()).toEqual([{ grant_id: grantId, at: 200, user_id: recipient.user_id, client_id: null, sync_key: "k" }]);
+      expect(db.listGrantRedemptions()).toEqual([{ grant_id: grantId, at: 200, user_id: recipient.user_id, client_id: null, sync_key: "k", extra_device: 0 }]);
 
       // A later association keeps the key's original source.
       db.associateUserKey(recipient.user_id, "k", null, "declared");
@@ -1120,6 +1120,104 @@ describe("grants: redemption", () => {
     expect(promoted.caps.sort()).toEqual(["invite", "sync"]);
     expect(promoted.user_id).toBe(guestId);
     expect(promoted.home_key).toBe(homeKeyBefore); // same identity, not re-created
+  });
+});
+
+describe("redeemExtraDevice: a spent link adds another browser for whoever spent it", () => {
+  let db: DbApi;
+  beforeEach(() => { db = openDb(":memory:"); });
+
+  const MIN = 60 * 1000;
+
+  /** A single-use guest link, spent by "firefox" at `at`. */
+  function spentGuest(at: number) {
+    const issuer = db.createUser({ authorizedBy: null, caps: ["sync", "invite"] }, at);
+    const grant = db.createGrant({ kind: "guest", issuerUserId: issuer.user_id, payload: "board-key" }, at);
+    const first = db.redeemGrant(grant.grantId, grant.secret, { clientId: "firefox", pubkeyJwk: "{}" }, at);
+    if (!first.ok) throw new Error("first redemption failed");
+    return { ...grant, user: first.result.user };
+  }
+
+  it("attaches the new client to the first redeemer's user, with that user's keys", () => {
+    const now = Date.now();
+    const { grantId, secret, user } = spentGuest(now);
+
+    const outcome = db.redeemExtraDevice(grantId, secret, { clientId: "safari", pubkeyJwk: "{}", label: "iPhone" }, now + MIN);
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.result.user.user_id).toBe(user.user_id);
+    expect(db.getClientById("safari")?.user_id).toBe(user.user_id);
+    expect(db.getUserKeys(user.user_id).map((k) => k.key)).toContain("board-key");
+    expect(db.listExtraDevicesSince(user.user_id, 0)).toEqual([
+      { client_id: "safari", label: "iPhone", at: now + MIN },
+    ]);
+  });
+
+  it("allows two extra devices, then refuses a third", () => {
+    const now = Date.now();
+    const { grantId, secret } = spentGuest(now);
+    expect(db.redeemExtraDevice(grantId, secret, { clientId: "b1", pubkeyJwk: "{}" }, now + MIN).ok).toBe(true);
+    expect(db.redeemExtraDevice(grantId, secret, { clientId: "b2", pubkeyJwk: "{}" }, now + 2 * MIN).ok).toBe(true);
+    const third = db.redeemExtraDevice(grantId, secret, { clientId: "b3", pubkeyJwk: "{}" }, now + 3 * MIN);
+    expect(third).toEqual({ ok: false, reason: "extra_device_limit" });
+  });
+
+  it("refuses once 10 minutes have passed since the first redemption", () => {
+    const now = Date.now();
+    const { grantId, secret } = spentGuest(now);
+    const late = db.redeemExtraDevice(grantId, secret, { clientId: "safari", pubkeyJwk: "{}" }, now + 11 * MIN);
+    expect(late).toEqual({ ok: false, reason: "extra_device_window" });
+    expect(db.getClientById("safari")).toBeNull();
+  });
+
+  it("refuses a link that still has uses left, since that one should just be redeemed", () => {
+    const now = Date.now();
+    const issuer = db.createUser({ authorizedBy: null, caps: ["sync", "invite"] }, now);
+    const { grantId, secret } = db.createGrant({ kind: "guest", issuerUserId: issuer.user_id, payload: "k" }, now);
+    const outcome = db.redeemExtraDevice(grantId, secret, { clientId: "safari", pubkeyJwk: "{}" }, now);
+    expect(outcome).toEqual({ ok: false, reason: "extra_device_unavailable" });
+  });
+
+  it("refuses a many-use link spent by more than one person", () => {
+    const now = Date.now();
+    const issuer = db.createUser({ authorizedBy: null, caps: ["sync", "invite"] }, now);
+    const { grantId, secret } = db.createGrant({ kind: "guest", issuerUserId: issuer.user_id, payload: "k", usesRemaining: 2 }, now);
+    db.redeemGrant(grantId, secret, { clientId: "alice", pubkeyJwk: "{}" }, now);
+    db.redeemGrant(grantId, secret, { clientId: "bob", pubkeyJwk: "{}" }, now);
+    const outcome = db.redeemExtraDevice(grantId, secret, { clientId: "safari", pubkeyJwk: "{}" }, now + MIN);
+    expect(outcome).toEqual({ ok: false, reason: "extra_device_unavailable" });
+  });
+
+  it("refuses a device or share link", () => {
+    const now = Date.now();
+    const issuer = db.createUser({ authorizedBy: null, caps: ["sync", "invite"] }, now);
+    const { grantId, secret } = db.createGrant({ kind: "device", issuerUserId: issuer.user_id }, now);
+    db.redeemGrant(grantId, secret, { clientId: "laptop", pubkeyJwk: "{}" }, now);
+    const outcome = db.redeemExtraDevice(grantId, secret, { clientId: "safari", pubkeyJwk: "{}" }, now + MIN);
+    expect(outcome).toEqual({ ok: false, reason: "extra_device_unavailable" });
+  });
+
+  it("refuses a wrong secret and counts the attempt", () => {
+    const now = Date.now();
+    const { grantId, secret } = spentGuest(now);
+    const outcome = db.redeemExtraDevice(grantId, secret + "x", { clientId: "safari", pubkeyJwk: "{}" }, now + MIN);
+    expect(outcome).toEqual({ ok: false, reason: "bad_secret" });
+    expect(db.getGrant(grantId)?.attempts).toBe(1);
+  });
+
+  it("refuses a client that already has an account", () => {
+    const now = Date.now();
+    const { grantId, secret } = spentGuest(now);
+    const outcome = db.redeemExtraDevice(grantId, secret, { clientId: "firefox", pubkeyJwk: "{}" }, now + MIN);
+    expect(outcome).toEqual({ ok: false, reason: "already_registered" });
+  });
+
+  it("refuses when the first redeemer has been suspended", () => {
+    const now = Date.now();
+    const { grantId, secret, user } = spentGuest(now);
+    db.setUserState(user.user_id, "suspended", now);
+    const outcome = db.redeemExtraDevice(grantId, secret, { clientId: "safari", pubkeyJwk: "{}" }, now + MIN);
+    expect(outcome).toEqual({ ok: false, reason: "extra_device_unavailable" });
   });
 });
 
