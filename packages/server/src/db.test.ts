@@ -1091,15 +1091,28 @@ describe("grants: redemption", () => {
     expect(outcome.result.user.caps).toEqual(["sync"]);
   });
 
-  it("device/share redemption from an already-registered client stays legal", () => {
+  // A device grant cannot move a client off the account it already belongs
+  // to (registerClient never reassigns), so refuse it up front rather than
+  // spend the grant and leave the client where it was.
+  it("device redemption from a client already on another account is refused without spending the grant", () => {
     const now = Date.now();
     const issuer = db.createUser({ authorizedBy: null, caps: ["sync"] }, now);
     const alreadyUserId = db.createUser({ authorizedBy: null, caps: ["sync"] }, now).user_id;
     db.registerClient({ clientId: "known-client", userId: alreadyUserId, pubkeyJwk: "{}" }, now);
 
-    const deviceGrant = db.createGrant({ kind: "device", issuerUserId: issuer.user_id }, now);
-    const deviceOutcome = db.redeemGrant(deviceGrant.grantId, deviceGrant.secret, { clientId: "known-client", pubkeyJwk: "{}" }, now);
-    expect(deviceOutcome.ok).toBe(true);
+    const { grantId, secret } = db.createGrant({ kind: "device", issuerUserId: issuer.user_id }, now);
+    const outcome = db.redeemGrant(grantId, secret, { clientId: "known-client", pubkeyJwk: "{}" }, now);
+    expect(outcome).toEqual({ ok: false, reason: "already_registered" });
+    expect(db.getGrant(grantId)?.uses_remaining).toBe(1);
+    expect(db.getClientById("known-client")?.user_id).toBe(alreadyUserId);
+    expect(db.listGrantRedemptions()).toEqual([]);
+  });
+
+  it("share redemption from an already-registered client stays legal", () => {
+    const now = Date.now();
+    const issuer = db.createUser({ authorizedBy: null, caps: ["sync"] }, now);
+    const alreadyUserId = db.createUser({ authorizedBy: null, caps: ["sync"] }, now).user_id;
+    db.registerClient({ clientId: "known-client", userId: alreadyUserId, pubkeyJwk: "{}" }, now);
 
     const shareGrant = db.createGrant({ kind: "share", issuerUserId: issuer.user_id, payload: "k" }, now);
     const shareOutcome = db.redeemGrant(shareGrant.grantId, shareGrant.secret, { existingUserId: alreadyUserId }, now);

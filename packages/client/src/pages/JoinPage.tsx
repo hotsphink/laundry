@@ -43,6 +43,9 @@ const REASON_MESSAGES: Record<string, string> = {
   extra_device_unavailable: "This link can't add another browser. Ask for a new link.",
 };
 
+const DEVICE_ALREADY_REGISTERED =
+  "This browser already has its own account on this server, so a device link can't add it to another account.";
+
 function reasonMessage(reason: string | undefined, fallback: string): string {
   return (reason && REASON_MESSAGES[reason]) || fallback;
 }
@@ -226,10 +229,22 @@ const JoinPage: Component = () => {
     const unsubscribe = syncClient.onGrantReply(epId, (msg) => {
       if (msg.type === "grant_info") {
         setGrantInfo({ kind: msg.kind, greeting: msg.greeting ?? null, issuerDisplayName: msg.issuer_display_name ?? null });
+        // A device link adds a browser with no account yet. This one has its
+        // own, and the server would refuse, so say so instead of offering Join.
+        if (msg.kind === "device" && alreadyRegistered()) {
+          setErrorReason("already_registered");
+          setErrorMessage(DEVICE_ALREADY_REGISTERED);
+          setStep("error");
+          return;
+        }
         setStep("confirm");
       } else if (msg.type === "error") {
         setErrorReason(msg.reason ?? null);
-        setErrorMessage(reasonMessage(msg.reason, msg.message ?? "That didn't work."));
+        setErrorMessage(
+          msg.reason === "already_registered" && grantInfo()?.kind === "device"
+            ? DEVICE_ALREADY_REGISTERED
+            : reasonMessage(msg.reason, msg.message ?? "That didn't work."),
+        );
         setStep("error");
       }
     });

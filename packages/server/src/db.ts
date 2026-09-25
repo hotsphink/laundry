@@ -1891,12 +1891,16 @@ export function createDbApi(sql: Database.Database) {
       // since createUser sets provisional only for 'guest'. The single-use
       // grant would be burned anyway, denying whoever the link was meant for.
       // Check before attemptRedeemGrant rather than after, so a misdirected tap
-      // costs nothing. device/share redemption from a known client stays legal,
-      // since both act on the caller's own existing identity rather than a new
-      // one, and guest degrades to exactly that (see applyGrantEffect).
+      // costs nothing. A device grant is refused the same way: it attaches a
+      // client to the issuer, and registerClient never moves a client that
+      // already belongs to someone, so the grant would be spent while this
+      // connection alone ran as the issuer until it reconnected. share
+      // redemption from a known client stays legal, since it acts on the
+      // caller's own identity, and guest degrades to exactly that (see
+      // applyGrantEffect).
       if (effect.clientId) {
         const grantPeek = getGrant(grantId);
-        if (grantPeek && grantPeek.kind === "invite" && getClientById(effect.clientId)) {
+        if (grantPeek && (grantPeek.kind === "invite" || grantPeek.kind === "device") && getClientById(effect.clientId)) {
           return { ok: false as const, reason: "already_registered" as const };
         }
       }
