@@ -727,8 +727,8 @@ export function createSyncServer(dbApi: DbApi, opts: SyncServerOptions = {}): Sy
       }
 
       // -- peek_grant: read-only preview -------------------------------------
-      // The join screen shows the grant's greeting and the voucher's display
-      // name BEFORE the account is created, and redemption is single-use, so
+      // The join screen shows the grant's greeting, the voucher's display
+      // name and how much the shared key holds BEFORE the account is created, and redemption is single-use, so
       // it cannot double as a preview. Works unauthenticated, like
       // redeem_grant, since a brand-new client parked in needs_grant is
       // exactly who needs this.
@@ -750,6 +750,7 @@ export function createSyncServer(dbApi: DbApi, opts: SyncServerOptions = {}): Sy
           greeting: peek.grant.greeting,
           issuer_display_name: peek.issuerDisplayName,
           expires_at: peek.grant.expires_at,
+          contents: peek.contents,
         }));
         return;
       }

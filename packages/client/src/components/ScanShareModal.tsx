@@ -23,7 +23,7 @@ const ScanShareModal: Component<{ open: boolean; onClose: () => void }> = (props
     if (!link) return false;
     scanner.stop();
     props.onClose();
-    navigate(joinRoutePath(link));
+    navigate(joinRoutePath(link), { state: { fromApp: true } });
     return true;
   };
 

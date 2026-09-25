@@ -4,6 +4,7 @@ import { syncClient } from "../sync/SyncClient.js";
 import { parseJoinInput, hashServerId } from "../sync/joinLink.js";
 import { endpointStatuses } from "../store/endpointStatuses.js";
 import { useQrScanner } from "../hooks/useQrScanner.js";
+import { currentBrowserLabel } from "../utils/browserLabel.js";
 import { countUnboundLocalBoards, discardUnboundLocalBoards } from "../db/operations.js";
 
 interface Props {
@@ -99,7 +100,7 @@ const RedeemGrantModal: Component<Props> = (props) => {
   const doJoin = async () => {
     if (unboundBoards() > 0 && keepChoice() === "discard") await discardUnboundLocalBoards();
     setStep("joining");
-    syncClient.redeemGrant(props.endpointId, grantId(), secret());
+    syncClient.redeemGrant(props.endpointId, grantId(), secret(), { label: currentBrowserLabel() });
   };
 
   return (

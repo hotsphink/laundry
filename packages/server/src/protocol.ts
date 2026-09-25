@@ -40,5 +40,7 @@
 // v8: redeem_grant takes `extra_device`, which adds the caller as another
 // device of whoever spent the link. `ok` gains `extra_devices`, and a new
 // `device_added` message reports one live. Additive, like v7.
+// v9: grant_info gains `contents` (board, list and item counts of the key a
+// grant hands over, or null), for the join screen's preview. Additive.
 export const MIN_PROTOCOL_VERSION: number = 6;
-export const MAX_PROTOCOL_VERSION: number = 8;
+export const MAX_PROTOCOL_VERSION: number = 9;

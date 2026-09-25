@@ -757,6 +757,7 @@ describe("peek_grant / create_grant", () => {
     expect(info.type).toBe("grant_info");
     expect(info.greeting).toBe("Groceries");
     expect(info.issuer_display_name).toBe("Steve");
+    expect(info.contents).toEqual({ boards: 0, lists: 0, items: 0 });
 
     // Still fully redeemable, since peeking is not a consuming action.
     const challengePromise = waitForMessage(ws);

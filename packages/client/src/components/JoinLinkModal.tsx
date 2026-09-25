@@ -44,7 +44,7 @@ const JoinLinkModal: Component<Props> = (props) => {
     if (!link) { setError("That isn't a Listr join link."); return; }
     scanner.stop();
     props.onClose();
-    navigate(joinRoutePath(link));
+    navigate(joinRoutePath(link), { state: { fromApp: true } });
   }
 
   const submit = (e: Event) => {

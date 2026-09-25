@@ -589,7 +589,67 @@
   margin: 0 0 var(--space-5);
 }
 
+/* Who shared the thing the join screen is about. */
+.join-eyebrow {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: var(--space-3);
+}
+
+.receive-card .join-title {
+  font-size: var(--text-2xl);
+  margin-bottom: var(--space-4);
+}
+
+.join-greeting {
+  font-size: var(--text-lg);
+}
+
+/* Counts of what the link shares, over stand-in rows that fade out. */
+.join-preview {
+  text-align: left;
+  margin-bottom: var(--space-6);
+}
+
+.join-preview-rows {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  mask-image: linear-gradient(#000 40%, transparent);
+  -webkit-mask-image: linear-gradient(#000 40%, transparent);
+}
+
+.join-preview-rows li {
+  padding: var(--space-3) var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+
+/* One full-width button that carries the screen, with anything else under it. */
+.join-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+}
+
+.join-open {
+  width: 100%;
+  padding-block: var(--space-5);
+  font-size: var(--text-lg);
+}
+
+.join-note {
+  margin-top: var(--space-5);
+}
+
+.join-note:empty {
+  display: none;
+}
+
 /* Fields inside the centred receive card have to opt back into reading order. */
+.join-device-name,
 .join-manual-host,
 .join-keep-choice {
   margin-top: var(--space-6);

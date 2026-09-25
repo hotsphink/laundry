@@ -64,10 +64,10 @@ test.describe("guest links", () => {
     await page.locator('.join-manual-host input[type="number"]').fill(String(server.port));
     await page.getByRole("button", { name: "Try this host" }).click();
 
-    await expect(page.locator(".receive-card h2")).toHaveText("You're invited", { timeout: 30_000 });
-    await expect(page.locator(".offer-name")).toContainText("Dad's shopping list");
+    await expect(page.locator(".join-accept")).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(".join-title")).toContainText("Dad's shopping list");
 
-    await page.getByRole("button", { name: "Join" }).click();
+    await page.locator(".join-accept").click();
     await expect(page.locator(".receive-saved")).toContainText("You're in!", { timeout: 30_000 });
 
     // Redeeming the grant is only half of it: the payload key is what makes
@@ -99,10 +99,10 @@ test.describe("guest links", () => {
 
     // 7.3 a-bis's second outcome: the link names an identity this client can
     // already resolve to a route of its own, so it is never asked for a host.
-    await expect(page.locator(".receive-card h2")).toHaveText("You're invited", { timeout: 30_000 });
+    await expect(page.locator(".join-accept")).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole("button", { name: "Try this host" })).toHaveCount(0);
     await expect(page.locator(".join-browser-warning")).toHaveCount(0);
-    await page.getByRole("button", { name: "Join" }).click();
+    await page.locator(".join-accept").click();
     await expect(page.locator(".receive-saved")).toContainText("You're in!", { timeout: 30_000 });
 
     // A share grant hands one more key to a user who already exists, so this
@@ -110,9 +110,9 @@ test.describe("guest links", () => {
     // parked in needs_grant.
     const shareLink = server.issueGrant({ kind: "share", payload: SHARE_KEY, greeting: "Packing list" });
     await page.goto(shareLink);
-    await expect(page.locator(".receive-card h2")).toHaveText("You're invited", { timeout: 30_000 });
-    await expect(page.locator(".offer-name")).toContainText("Packing list");
-    await page.getByRole("button", { name: "Join" }).click();
+    await expect(page.locator(".join-accept")).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(".join-title")).toContainText("Packing list");
+    await page.locator(".join-accept").click();
     await expect(page.locator(".receive-saved")).toContainText("You're in!", { timeout: 30_000 });
 
     const keys = await readStore<{ key: string }>(page, "shared_keys");
@@ -140,17 +140,37 @@ test.describe("guest links", () => {
       });
       await page.goto(link);
 
-      await expect(page.locator(".receive-card h2")).toHaveText("You're invited", { timeout: 30_000 });
-      await expect(page.locator(".join-browser-warning")).toContainText("Open this link in Safari instead");
+      await expect(page.locator(".join-accept")).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator(".join-browser-warning")).toContainText("open this in Safari");
       await expect(page.locator(".join-browser-warning")).toContainText("in Firefox");
       await expect(page.getByRole("button", { name: "Copy link for Safari" })).toBeVisible();
 
-      // Still possible to join here, for someone who means to.
-      await page.getByRole("button", { name: "Join here anyway" }).click();
+      // Still possible to open it here, for someone who means to.
+      await page.locator(".join-accept").click();
       await expect(page.locator(".receive-saved")).toContainText("You're in!", { timeout: 30_000 });
     } finally {
       await context.close();
     }
+  });
+
+  // Opened from inside the app there is no tab to close, so the join screen
+  // offers a way back that leaves the link unused.
+  test("a link opened from inside the app can be set aside with Not now", async ({ page }) => {
+    test.setTimeout(90_000);
+    const link = server.issueGrant({ kind: "guest", payload: "e2e-guest-key-not-now", greeting: "Maybe later" });
+    await clearDatabase(page);
+    await addSyncEndpoint(page, { host: "localhost", port: server.port, secure: false, lastServerId: server.serverId });
+    await page.goto("/#/board/00000000-0000-4000-8000-000000000000");
+    await page.getByRole("button", { name: "Join with a link" }).click();
+    await page.locator("#join-link-input").fill(`${new URL(page.url()).origin}${link}`);
+    await page.getByRole("button", { name: "Use" }).click();
+
+    await expect(page.locator(".join-accept")).toBeVisible({ timeout: 30_000 });
+    await page.getByRole("button", { name: "Not now" }).click();
+    await expect(page.getByRole("button", { name: "Join with a link" })).toBeVisible();
+    // The link was left unused, so no account was created.
+    const identities = await readStore<{ state: string }>(page, "server_identity");
+    expect(identities.filter((i) => i.state === "active")).toEqual([]);
   });
 
   // Joined in one browser, then opened the app in another, the way an iPhone
@@ -165,8 +185,8 @@ test.describe("guest links", () => {
     await clearDatabase(page);
     await addSyncEndpoint(page, route);
     await page.goto(link);
-    await expect(page.locator(".receive-card h2")).toHaveText("You're invited", { timeout: 30_000 });
-    await page.getByRole("button", { name: "Join" }).click();
+    await expect(page.locator(".join-accept")).toBeVisible({ timeout: 30_000 });
+    await page.locator(".join-accept").click();
     await expect(page.locator(".receive-saved")).toContainText("You're in!", { timeout: 30_000 });
     await page.getByRole("button", { name: "Go to app" }).click();
     const [firstIdentity] = await readStore<{ user_id: string }>(page, "server_identity");
@@ -182,9 +202,9 @@ test.describe("guest links", () => {
       await second.locator("#join-link-input").fill(`${new URL(second.url()).origin}${link}`);
       await second.getByRole("button", { name: "Use" }).click();
 
-      await expect(second.locator(".receive-card h2")).toHaveText("Couldn't join", { timeout: 30_000 });
-      await expect(second.locator(".field-error")).toHaveText("This link has already been used.");
-      await second.getByRole("button", { name: "I already joined in another browser" }).click();
+      await expect(second.locator(".receive-card h2")).toHaveText("This link didn't open", { timeout: 30_000 });
+      await expect(second.locator(".field-error")).toHaveText("This link has already been opened as many times as it allows.");
+      await second.getByRole("button", { name: "It was me, in another browser" }).click();
       await expect(second.locator(".receive-card h2")).toHaveText("Add this browser?");
       await second.getByRole("button", { name: "Yes, that was me" }).click();
       await expect(second.locator(".receive-saved")).toContainText("You're in!", { timeout: 30_000 });
@@ -211,14 +231,14 @@ test.describe("guest links", () => {
     await clearDatabase(page);
     await addSyncEndpoint(page, { host: "localhost", port: server.port, secure: false, lastServerId: server.serverId });
     await page.goto(guestLink);
-    await expect(page.locator(".receive-card h2")).toHaveText("You're invited", { timeout: 30_000 });
-    await page.getByRole("button", { name: "Join" }).click();
+    await expect(page.locator(".join-accept")).toBeVisible({ timeout: 30_000 });
+    await page.locator(".join-accept").click();
     await expect(page.locator(".receive-saved")).toContainText("You're in!", { timeout: 30_000 });
 
     await page.goto(server.issueGrant({ kind: "device" }));
-    await expect(page.locator(".receive-card h2")).toHaveText("Couldn't join", { timeout: 30_000 });
+    await expect(page.locator(".receive-card h2")).toHaveText("This link didn't open", { timeout: 30_000 });
     await expect(page.locator(".field-error")).toContainText("already has its own account");
-    await expect(page.getByRole("button", { name: "I already joined in another browser" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "It was me, in another browser" })).toHaveCount(0);
   });
 
   test("a guest link that someone else already used fails with a message saying so", async ({ page }) => {
@@ -236,7 +256,7 @@ test.describe("guest links", () => {
 
     // uses_remaining is the security control the 24h TTL deliberately leaves
     // to it (7.3b), and being told plainly is what makes it tamper-evident.
-    await expect(page.locator(".receive-card h2")).toHaveText("Couldn't join", { timeout: 30_000 });
-    await expect(page.locator(".field-error")).toHaveText("This link has already been used.");
+    await expect(page.locator(".receive-card h2")).toHaveText("This link didn't open", { timeout: 30_000 });
+    await expect(page.locator(".field-error")).toHaveText("This link has already been opened as many times as it allows.");
   });
 });

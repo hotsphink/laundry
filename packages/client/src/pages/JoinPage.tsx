@@ -1,5 +1,5 @@
-import { type Component, createMemo, createSignal, createEffect, onCleanup, Show } from "solid-js";
-import { useParams, useNavigate, useSearchParams } from "@solidjs/router";
+import { type Component, createMemo, createSignal, createEffect, onCleanup, For, Match, Show, Switch } from "solid-js";
+import { useParams, useNavigate, useSearchParams, useLocation } from "@solidjs/router";
 import { liveQuery } from "dexie";
 import { db } from "../db/database.js";
 import { syncClient } from "../sync/SyncClient.js";
@@ -25,23 +25,53 @@ type Step =
   | "success"
   | "error";
 
+/** Counts of what a shared key holds. Titles are never sent before joining. */
+interface GrantContents {
+  boards: number;
+  lists: number;
+  items: number;
+}
+
 interface GrantInfo {
   kind: string;
   greeting: string | null;
   issuerDisplayName: string | null;
+  /** Null for a grant that hands over no key, and absent from a pre-v9 server. */
+  contents: GrantContents | null;
 }
 
+/** Which confirm screen a grant gets. */
+type Variant =
+  | "device" // another device for the account that made the link
+  | "add" // shared boards for a browser that already has an account here
+  | "shared" // shared boards for someone new
+  | "invite"; // an account with nothing shared yet
+
+/** Stand-in rows for the join preview. The real titles stay private until the
+ * link is opened, so these only suggest a list. */
+const PREVIEW_ROWS = ["Bananas", "Spinach", "Flamethrower"];
+
 const REASON_MESSAGES: Record<string, string> = {
-  already_registered: "You already have an account on this server — ask for a share link instead.",
-  used: "This link has already been used.",
-  expired: "This link has expired.",
-  burned: "Too many attempts were made with this link; it's no longer valid.",
-  not_found: "This link doesn't match any invite on this server.",
-  bad_secret: "This link looks corrupted.",
-  extra_device_window: "It's been too long since this link was first used to add another browser with it. Ask for a new link.",
+  already_registered: "This browser already uses Listr, so this kind of link can't be used here. Ask for a share link instead.",
+  used: "This link has already been opened as many times as it allows.",
+  expired: "This link expired. Ask whoever sent it for a new one.",
+  burned: "This link was locked after too many tries. Ask for a new one.",
+  not_found: "This link doesn't match anything on this server. Ask for a new one.",
+  bad_secret: "This link looks damaged. Try copying it again.",
+  extra_device_window: "It's been too long since this link was first opened to add another browser with it. Ask for a new link.",
   extra_device_limit: "This link has already added as many browsers as it can. Ask for a new link.",
   extra_device_unavailable: "This link can't add another browser. Ask for a new link.",
 };
+
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+function describeContents(c: GrantContents): string {
+  const parts = [plural(c.lists, "list"), plural(c.items, "item")];
+  if (c.boards > 1) parts.unshift(plural(c.boards, "board"));
+  return parts.join(" \u00b7 ");
+}
 
 const DEVICE_ALREADY_REGISTERED =
   "This browser already has its own account on this server, so a device link can't add it to another account.";
@@ -54,6 +84,10 @@ const JoinPage: Component = () => {
   const params = useParams<{ hash: string; credentials: string }>();
   const [searchParams] = useSearchParams<{ b?: string }>();
   const navigate = useNavigate();
+  // Set by the in-app "open a link" flows. Only there is there no tab to
+  // close, so only there does the screen offer a way back.
+  const location = useLocation<{ fromApp?: boolean }>();
+  const fromApp = () => !!location.state?.fromApp;
 
   const payload = createMemo<JoinLinkPayload | null>(() => parseJoinPath(params.hash, params.credentials));
   /** The board a share link points at, if any. A group share and a plain
@@ -70,6 +104,7 @@ const JoinPage: Component = () => {
   const [unboundBoards, setUnboundBoards] = createSignal(0);
   const [keepChoice, setKeepChoice] = createSignal<"keep" | "discard" | null>(null);
   const [linkCopied, setLinkCopied] = createSignal(false);
+  const [deviceName, setDeviceName] = createSignal(currentBrowserLabel());
   // A join in a non-Safari iOS browser strands the account in that browser,
   // out of reach of a Home Screen app, which only Safari installs.
   const wrongIosBrowser = currentNonSafariIosBrowser();
@@ -228,7 +263,12 @@ const JoinPage: Component = () => {
     if (!epId) return;
     const unsubscribe = syncClient.onGrantReply(epId, (msg) => {
       if (msg.type === "grant_info") {
-        setGrantInfo({ kind: msg.kind, greeting: msg.greeting ?? null, issuerDisplayName: msg.issuer_display_name ?? null });
+        setGrantInfo({
+          kind: msg.kind,
+          greeting: msg.greeting ?? null,
+          issuerDisplayName: msg.issuer_display_name ?? null,
+          contents: msg.contents ?? null,
+        });
         // A device link adds a browser with no account yet. This one has its
         // own, and the server would refuse, so say so instead of offering Join.
         if (msg.kind === "device" && alreadyRegistered()) {
@@ -278,6 +318,33 @@ const JoinPage: Component = () => {
     onCleanup(() => sub.unsubscribe());
   });
 
+  const variant = (): Variant => {
+    const info = grantInfo();
+    if (info?.kind === "device") return "device";
+    if (alreadyRegistered()) return "add";
+    return info?.contents ? "shared" : "invite";
+  };
+
+  /** What the link hands over, by the name its sender gave it. */
+  const offerTitle = () => grantInfo()?.greeting || "a shared list";
+
+  /** A link to a whole group carries no board to open. */
+  const isGroup = () => !targetBoardId();
+
+  const sharer = () => grantInfo()?.issuerDisplayName ?? null;
+
+  const sharedLine = () => {
+    const name = sharer();
+    if (isGroup()) {
+      return name
+        ? `You and ${name} share these boards, and ${name} will see that you opened them.`
+        : "You'll share these boards with whoever sent the link, and they'll see that you opened them.";
+    }
+    return name
+      ? `You and ${name} share this list, and ${name} will see that you opened it.`
+      : "You'll share this list with whoever sent the link, and they'll see that you opened it.";
+  };
+
   const doJoin = async () => {
     const p = payload();
     const epId = endpointId();
@@ -285,9 +352,11 @@ const JoinPage: Component = () => {
     if (unboundBoards() > 0 && keepChoice() === "discard") {
       await discardUnboundLocalBoards();
     }
+    // Every device gets a name, so none shows up unnamed in the device list.
+    const label = (variant() === "device" && deviceName().trim()) || currentBrowserLabel();
     setStep("joining");
     try {
-      syncClient.redeemGrant(epId, p.grantId, p.secret);
+      syncClient.redeemGrant(epId, p.grantId, p.secret, { label });
     } catch {
       setErrorMessage("Lost the connection to that server before joining. Open the link again.");
       setStep("error");
@@ -337,26 +406,21 @@ const JoinPage: Component = () => {
     navigate("/");
   };
 
+  const goBack = () => navigate(-1);
+
   return (
     <div class="main receive-page">
       <div class="panel receive-card">
         <Show when={step() === "invalid"}>
-          <h2>Invalid join link</h2>
-          <p class="field-hint">This link doesn't look like a valid Listr join link.</p>
+          <h2>This link isn't complete</h2>
+          <p class="field-hint">Part of it may be missing, so try copying it again.</p>
           <button class="btn-primary" type="button" onClick={goHome}>Go home</button>
         </Show>
 
-        <Show when={step() === "resolving" || step() === "connecting"}>
+        <Show when={step() === "resolving" || step() === "connecting" || step() === "peeking"}>
           <div class="receive-syncing">
             <div class="spinner" />
-            <div>Connecting…</div>
-          </div>
-        </Show>
-
-        <Show when={step() === "peeking"}>
-          <div class="receive-syncing">
-            <div class="spinner" />
-            <div>Looking up your invite…</div>
+            <div>Opening link{"\u2026"}</div>
           </div>
         </Show>
 
@@ -376,68 +440,112 @@ const JoinPage: Component = () => {
         </Show>
 
         <Show when={step() === "confirm" && grantInfo()}>
-          {(info) => (
-            <>
-              <h2>You're invited</h2>
-              <Show when={info().issuerDisplayName}>
-                <p><strong>{info().issuerDisplayName}</strong> is inviting you with the message</p>
+          <Switch>
+            <Match when={variant() === "device"}>
+              <Show when={sharer()}>
+                <div class="join-eyebrow">{sharer()}'s lists</div>
               </Show>
-              <Show when={info().greeting}>
-                <div class="offer-name">"{info().greeting}"</div>
-              </Show>
-              <p class="field-hint">
-                {alreadyRegistered()
-                  ? "You already have an account on this server, so tapping Join just adds what this link shares to it."
-                  : "Tapping Join creates an account for you on this server. This is not anonymous, and the person who invited you can see that you joined."}
-              </p>
-              <Show when={unboundBoards() > 0}>
-                <div class="form-field join-keep-choice">
-                  <div class="field-hint field-hint-lead">
-                    You already have {unboundBoards()} board{unboundBoards() > 1 ? "s" : ""} on this device from before joining.
-                  </div>
-                  <fieldset class="join-keep-options">
-                    <legend class="sr-only">What to do with the boards already on this device</legend>
-                    <label class="check-label">
-                      <input type="radio" name="keep-choice" checked={keepChoice() !== "discard"} onChange={() => setKeepChoice("keep")} />
-                      Keep it — it becomes part of your new account
-                    </label>
-                    <label class="check-label">
-                      <input type="radio" name="keep-choice" checked={keepChoice() === "discard"} onChange={() => setKeepChoice("discard")} />
-                      Discard it
-                    </label>
-                  </fieldset>
-                </div>
-              </Show>
-              <Show when={suggestSafari()}>
-                <div class="join-browser-warning" role="note">
-                  <p>
-                    <strong>Want Listr as an app on this device?</strong> Open this link in Safari instead. Joining
-                    here keeps your account and boards in {wrongIosBrowser}, and Safari can't see them. A one-person
-                    link also stops working once it's used here.
-                  </p>
-                  <p class="field-hint">Copy the link, then paste it into Safari's address bar.</p>
-                </div>
-              </Show>
-              <div class="actions actions-center">
-                <button class="btn-ghost" type="button" onClick={goHome}>Cancel</button>
-                <Show
-                  when={suggestSafari()}
-                  fallback={<button class="btn-primary" type="button" onClick={doJoin}>Join</button>}
-                >
-                  <button class="btn-ghost" type="button" onClick={doJoin}>Join here anyway</button>
-                  <button class="btn-primary" type="button" onClick={copyLink}>
-                    {linkCopied() ? "Copied!" : "Copy link for Safari"}
-                  </button>
-                </Show>
+              <h2>Add this device</h2>
+              <p class="field-hint">It gets all of your boards and stays in sync with your other devices.</p>
+              <div class="form-field join-device-name">
+                <label class="field-label" for="join-device-name">Name this device</label>
+                <input
+                  id="join-device-name"
+                  value={deviceName()}
+                  onInput={(e) => setDeviceName(e.currentTarget.value)}
+                  autocomplete="off"
+                />
+                <div class="field-hint">Only you and whoever runs the sync server see this.</div>
               </div>
-            </>
-          )}
+            </Match>
+            <Match when={variant() === "invite"}>
+              <h2>{sharer() ? `${sharer()} invited you to Listr` : "You're invited to Listr"}</h2>
+              <Show when={grantInfo()!.greeting}>
+                <p class="join-greeting">{grantInfo()!.greeting}</p>
+              </Show>
+            </Match>
+            <Match when={true}>
+              <div class="join-eyebrow">{sharer() ? `Shared by ${sharer()}` : "Shared with you"}</div>
+              <h2 class="join-title">{offerTitle()}</h2>
+              <Show when={grantInfo()!.contents}>
+                {(c) => (
+                  <div class="join-preview">
+                    <div class="field-hint">{describeContents(c())}</div>
+                    <ul class="join-preview-rows" aria-hidden="true">
+                      <For each={PREVIEW_ROWS}>{(row) => <li>{row}</li>}</For>
+                    </ul>
+                  </div>
+                )}
+              </Show>
+            </Match>
+          </Switch>
+
+          <Show when={unboundBoards() > 0 && variant() !== "add"}>
+            <div class="form-field join-keep-choice">
+              <div class="field-hint field-hint-lead">
+                You already have {plural(unboundBoards(), "board")} in this browser.
+              </div>
+              <fieldset class="join-keep-options">
+                <legend class="sr-only">What to do with the boards already in this browser</legend>
+                <label class="check-label">
+                  <input type="radio" name="keep-choice" checked={keepChoice() !== "discard"} onChange={() => setKeepChoice("keep")} />
+                  Keep them (they stay private)
+                </label>
+                <label class="check-label">
+                  <input type="radio" name="keep-choice" checked={keepChoice() === "discard"} onChange={() => setKeepChoice("discard")} />
+                  Remove them
+                </label>
+              </fieldset>
+            </div>
+          </Show>
+
+          <Show when={suggestSafari()}>
+            <div class="join-browser-warning" role="note">
+              <p>
+                On iPhone, open this in Safari to add Listr to your Home Screen. Lists opened here stay
+                in {wrongIosBrowser}, and a link for one person stops working once it's opened here.
+              </p>
+              <p class="field-hint">Copy the link, then paste it into Safari's address bar.</p>
+            </div>
+          </Show>
+
+          <div class="join-actions">
+            <Show when={suggestSafari()}>
+              <button class="btn-primary join-open" type="button" onClick={copyLink}>
+                {linkCopied() ? "Copied!" : "Copy link for Safari"}
+              </button>
+            </Show>
+            <button class={suggestSafari() ? "btn-ghost join-accept" : "btn-primary join-open join-accept"} type="button" onClick={doJoin}>
+              {suggestSafari()
+                ? "Open here"
+                : variant() === "device"
+                  ? "Add device"
+                  : variant() === "invite"
+                    ? "Start using Listr"
+                    : variant() === "add"
+                      ? "Add to my boards"
+                      : `Open ${offerTitle()}`}
+            </button>
+            <Show when={fromApp()}>
+              <button class="btn-ghost" type="button" onClick={goBack}>Not now</button>
+            </Show>
+          </div>
+
+          <p class="field-hint join-note">
+            <Switch>
+              <Match when={variant() === "shared"}>{sharedLine()}</Match>
+              <Match when={variant() === "add"}>It will appear with your other shared boards.</Match>
+              <Match when={variant() === "invite"}>
+                {sharer() ? `${sharer()} will see that you joined. ` : ""}Your lists stay private until you share one.
+              </Match>
+            </Switch>
+          </p>
         </Show>
 
         <Show when={step() === "joining"}>
           <div class="receive-syncing">
             <div class="spinner" />
-            <div>Joining…</div>
+            <div>{variant() === "device" ? "Adding this device\u2026" : variant() === "invite" ? "Setting up Listr\u2026" : `Opening ${offerTitle()}\u2026`}</div>
           </div>
         </Show>
 
@@ -445,12 +553,12 @@ const JoinPage: Component = () => {
           <Show when={!targetBoardId()} fallback={
             <div class="receive-syncing">
               <div class="spinner" />
-              <div>Syncing board…</div>
-              <div class="field-hint">Waiting for data from server</div>
+              <div>Opening {offerTitle()}{"\u2026"}</div>
+              <div class="field-hint">Waiting for data from the server</div>
             </div>
           }>
             <div class="receive-saved">
-              <div class="receive-saved-icon">✓</div>
+              <div class="receive-saved-icon">{"\u2713"}</div>
               <div>You're in!</div>
             </div>
             <div class="actions actions-center">
@@ -460,19 +568,18 @@ const JoinPage: Component = () => {
         </Show>
 
         <Show when={step() === "error"}>
-          <h2>Couldn't join</h2>
+          <h2>This link didn't open</h2>
           <p class="field-error" role="alert">{errorMessage()}</p>
           <Show when={canAddAsExtraDevice()}>
             <p class="field-hint">
-              If you used it yourself in another browser in the last few minutes, you can add this browser to that
-              account.
+              Was that you, in another browser, in the last few minutes? Then you can add this browser too.
             </p>
           </Show>
           <div class="actions actions-center">
             <button class="btn-ghost" type="button" onClick={goHome}>Go home</button>
             <Show when={canAddAsExtraDevice()}>
               <button class="btn-primary" type="button" onClick={() => setStep("extra_confirm")}>
-                I already joined in another browser
+                It was me, in another browser
               </button>
             </Show>
           </div>

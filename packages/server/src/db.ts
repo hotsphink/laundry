@@ -737,6 +737,12 @@ const MAX_GRANT_ATTEMPTS = 10;
 export const EXTRA_DEVICE_WINDOW_MS = 10 * 60 * 1000;
 export const MAX_EXTRA_DEVICES = 2;
 
+export interface KeyContents {
+  boards: number;
+  lists: number;
+  items: number;
+}
+
 function tableFor(type: EntityType): string {
   if (type === "board") return "boards";
   if (type === "list") return "lists";
@@ -1742,7 +1748,7 @@ export function createDbApi(sql: Database.Database) {
     grantId: string,
     secret: string,
     now: number,
-  ): { ok: true; grant: GrantRow; issuerDisplayName: string | null } | { ok: false; reason: RedeemFailureReason } {
+  ): { ok: true; grant: GrantRow; issuerDisplayName: string | null; contents: KeyContents | null } | { ok: false; reason: RedeemFailureReason } {
     const grant = getGrant(grantId);
     if (!grant) return { ok: false, reason: "not_found" };
     if (grant.attempts >= MAX_GRANT_ATTEMPTS) return { ok: false, reason: "burned" };
@@ -1764,7 +1770,16 @@ export function createDbApi(sql: Database.Database) {
     }
 
     const issuer = getUser(grant.issuer_user_id);
-    return { ok: true, grant, issuerDisplayName: issuer?.display_name ?? null };
+    const contents = grant.payload ? countKeyContents(grant.payload) : null;
+    return { ok: true, grant, issuerDisplayName: issuer?.display_name ?? null, contents };
+  }
+
+  /** How much a sync key holds, for the join screen's preview. Counts only:
+   * a peek must not reveal any titles. */
+  function countKeyContents(syncKey: string): KeyContents {
+    const count = (table: string) =>
+      (sql.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE sync_key = ?`).get(syncKey) as { n: number }).n;
+    return { boards: count("boards"), lists: count("lists"), items: count("items") };
   }
 
   interface RedeemEffectParams {

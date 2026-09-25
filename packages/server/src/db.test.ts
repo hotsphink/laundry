@@ -1257,6 +1257,27 @@ describe("peekGrant: read-only preview", () => {
     expect(outcome.ok).toBe(true);
   });
 
+  it("counts what the shared key holds, and nothing for a grant with no key", () => {
+    const now = Date.now();
+    const issuer = db.createUser({ authorizedBy: null, caps: ["sync", "invite"], displayName: "Steve" }, now);
+    db.upsertEntity("board", makeBoard("b1", 100), KEY);
+    db.upsertEntity("list", makeList("l1", 100), KEY);
+    db.upsertEntity("list", makeList("l2", 100), KEY);
+    db.upsertEntity("item", makeItem("i1", 100), KEY);
+    db.upsertEntity("item", makeItem("i2", 100), KEY);
+    db.upsertEntity("item", makeItem("i3", 100), KEY);
+    db.upsertEntity("item", makeItem("other", 100), "another-key");
+    db.applyTombstone("item", "i3", now, KEY);
+
+    const shared = db.createGrant({ kind: "guest", issuerUserId: issuer.user_id, payload: KEY }, now);
+    const peek = db.peekGrant(shared.grantId, shared.secret, now);
+    expect(peek.ok && peek.contents).toEqual({ boards: 1, lists: 2, items: 2 });
+
+    const device = db.createGrant({ kind: "device", issuerUserId: issuer.user_id }, now);
+    const devicePeek = db.peekGrant(device.grantId, device.secret, now);
+    expect(devicePeek.ok && devicePeek.contents).toBeNull();
+  });
+
   it("shares the same attempt budget as attemptRedeemGrant, so it cannot be used as a free brute-force oracle", () => {
     const now = Date.now();
     const issuer = db.createUser({ authorizedBy: null, caps: ["sync", "invite"] }, now);

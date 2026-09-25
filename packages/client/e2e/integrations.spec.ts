@@ -59,8 +59,8 @@ async function joinServer(page: Page): Promise<void> {
   await clearDatabase(page);
   await addSyncEndpoint(page, { host: "localhost", port: server.port, secure: false, lastServerId: server.serverId });
   await page.goto(server.issueGrant({ kind: "invite", caps: ["sync"] }));
-  await expect(page.locator(".receive-card h2")).toHaveText("You're invited", { timeout: 30_000 });
-  await page.getByRole("button", { name: "Join" }).click();
+  await expect(page.locator(".join-accept")).toBeVisible({ timeout: 30_000 });
+  await page.locator(".join-accept").click();
   await expect(page.locator(".receive-saved")).toContainText("You're in!", { timeout: 30_000 });
   await page.getByRole("button", { name: "Go to app" }).click();
 }

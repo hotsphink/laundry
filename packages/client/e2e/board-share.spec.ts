@@ -47,8 +47,8 @@ async function seedRoute(page: Page): Promise<void> {
 async function join(page: Page, link: string): Promise<void> {
   await seedRoute(page);
   await page.goto(link);
-  await expect(page.locator(".receive-card h2")).toHaveText("You're invited", { timeout: 30_000 });
-  await page.getByRole("button", { name: "Join" }).click();
+  await expect(page.locator(".join-accept")).toBeVisible({ timeout: 30_000 });
+  await page.locator(".join-accept").click();
 }
 
 test.describe("board sharing", () => {
@@ -98,9 +98,14 @@ test.describe("board sharing", () => {
       await recipient.locator('.join-manual-host input[type="number"]').fill(String(server.port));
       await recipient.getByRole("button", { name: "Try this host" }).click();
 
-      await expect(recipient.locator(".receive-card h2")).toHaveText("You're invited", { timeout: 40_000 });
-      await expect(recipient.locator(".offer-name")).toContainText("Camping Trip");
-      await recipient.getByRole("button", { name: "Join" }).click();
+      await expect(recipient.locator(".join-accept")).toBeVisible({ timeout: 40_000 });
+      await expect(recipient.locator(".join-title")).toContainText("Camping Trip");
+      // Real counts from the server, but no titles before the link is opened.
+      await expect(recipient.locator(".join-preview")).toContainText("1 list \u00b7 1 item");
+      await expect(recipient.locator(".join-preview")).not.toContainText("Tent");
+      // Opened straight from the link, so closing the tab is the way out.
+      await expect(recipient.getByRole("button", { name: "Not now" })).toHaveCount(0);
+      await recipient.locator(".join-accept").click();
 
       // Not merely "You're in!": the link lands on the board itself, with no
       // intermediate screen to tap through.
@@ -156,8 +161,8 @@ test.describe("board sharing", () => {
       const recipient = await recipientContext.newPage();
       await seedRoute(recipient);
       await recipient.goto(shareUrl);
-      await expect(recipient.locator(".receive-card h2")).toHaveText("You're invited", { timeout: 40_000 });
-      await recipient.getByRole("button", { name: "Join" }).click();
+      await expect(recipient.locator(".join-accept")).toBeVisible({ timeout: 40_000 });
+      await recipient.locator(".join-accept").click();
       await expect(recipient.locator(".receive-saved")).toContainText("You're in!", { timeout: 60_000 });
       await recipient.getByRole("button", { name: "Go to app" }).click();
 
@@ -203,10 +208,10 @@ test.describe("board sharing", () => {
       await recipient.getByRole("button", { name: "Go to app" }).click();
 
       await recipient.goto(shareUrl);
-      await expect(recipient.locator(".receive-card h2")).toHaveText("You're invited", { timeout: 40_000 });
+      await expect(recipient.locator(".join-accept")).toBeVisible({ timeout: 40_000 });
       // The screen must not promise an account they already have.
-      await expect(recipient.locator(".receive-card")).toContainText("You already have an account");
-      await recipient.getByRole("button", { name: "Join" }).click();
+      await expect(recipient.locator(".join-accept")).toHaveText("Add to my boards");
+      await recipient.locator(".join-accept").click();
 
       await expect(recipient.locator(".page-title h1")).toHaveText("Shared Later", { timeout: 60_000 });
       await expect(recipient.locator(".list-view-item", { hasText: "Book flights" })).toBeVisible({ timeout: 60_000 });
@@ -236,15 +241,15 @@ test.describe("board sharing", () => {
       const a = await first.newPage();
       await seedRoute(a);
       await a.goto(shareUrl);
-      await expect(a.locator(".receive-card h2")).toHaveText("You're invited", { timeout: 40_000 });
-      await a.getByRole("button", { name: "Join" }).click();
+      await expect(a.locator(".join-accept")).toBeVisible({ timeout: 40_000 });
+      await a.locator(".join-accept").click();
       await expect(a.locator(".page-title h1")).toHaveText("Packing List", { timeout: 60_000 });
 
       const b = await second.newPage();
       await seedRoute(b);
       await b.goto(shareUrl);
-      await expect(b.locator(".receive-card h2")).toHaveText("Couldn't join", { timeout: 60_000 });
-      await expect(b.locator(".field-error")).toHaveText("This link has already been used.");
+      await expect(b.locator(".receive-card h2")).toHaveText("This link didn't open", { timeout: 60_000 });
+      await expect(b.locator(".field-error")).toHaveText("This link has already been opened as many times as it allows.");
     } finally {
       await first.close();
       await second.close();

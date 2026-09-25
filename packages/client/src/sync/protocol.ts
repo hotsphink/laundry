@@ -24,4 +24,6 @@
 // `choices`. Additive: the server still accepts v6.
 // v8: redeem_grant's `extra_device` flag, `ok.extra_devices` and the
 // `device_added` message. Additive.
-export const PROTOCOL_VERSION = 8;
+// v9: grant_info carries `contents`, the counts shown on the join screen.
+// Additive.
+export const PROTOCOL_VERSION = 9;
