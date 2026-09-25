@@ -68,8 +68,9 @@ button,
   transition: background var(--speed), color var(--speed), border-color var(--speed);
 }
 
-button:hover:not(:disabled):not(.btn-bare),
-.btn:hover:not(:disabled):not(.btn-bare) {
+/* :where keeps this below every variant's own hover rule, such as
+ * .btn-primary's, which would otherwise lose to the bare element. */
+:where(button, .btn):hover:not(:disabled):not(.btn-bare) {
   background: var(--bg-active);
 }
 
