@@ -628,3 +628,13 @@ button:disabled,
   margin-left: 2em;
   opacity: 0.85;
 }
+
+/* A board URL with no board behind it in this browser. */
+.board-missing h2 {
+  color: var(--text);
+  margin-bottom: var(--space-4);
+}
+
+.board-missing p {
+  max-width: 36em;
+}

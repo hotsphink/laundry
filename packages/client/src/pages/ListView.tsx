@@ -33,6 +33,7 @@ import MoveToListModal from "../components/MoveToListModal.js";
 import BoardShareModal from "../components/BoardShareModal.js";
 import CloneBoardModal from "../components/CloneBoardModal.js";
 import ShareIcon from "../components/ShareIcon.js";
+import BoardMissing from "../components/BoardMissing.js";
 
 // Stable sentinel object for the inline-add dummy row. Using a single reference
 // lets SolidJS <For> reuse the DOM node when the dummy changes position.
@@ -110,6 +111,8 @@ const ListView: Component = () => {
 
   // DB-subscribed state — populated by liveQuery effects below
   const [board, setBoard] = createSignal<Board | undefined>();
+  // False until the board query first answers, so a slow load never reads as "not found".
+  const [boardLoaded, setBoardLoaded] = createSignal(false);
   const [allLists, setAllLists] = createSignal<List[]>([]);
   const [itemsByList, setItemsByList] = createSignal<Map<string, Item[]>>(new Map());
   // Integration results for this board's items, grouped by item_id.
@@ -263,7 +266,8 @@ const ListView: Component = () => {
     setEditingList(undefined);
     setDummyAfterIds(new Map());
 
-    const sub1 = liveQuery(() => db.boards.get(boardId)).subscribe((v) => setBoard(v));
+    setBoardLoaded(false);
+    const sub1 = liveQuery(() => db.boards.get(boardId)).subscribe((v) => { setBoard(v); setBoardLoaded(true); });
     const sub2 = liveQuery(() =>
       db.lists.where("board_id").equals(boardId).sortBy("position")
     ).subscribe((v) => setAllLists(v));
@@ -873,7 +877,7 @@ const ListView: Component = () => {
 
   return (
     <div class="main">
-      <Show when={board()} fallback={<div class="empty-state"><p>Board not found.</p></div>}>
+      <Show when={board()} fallback={<Show when={boardLoaded()}><BoardMissing /></Show>}>
         {(_cat) => (
           <>
             <Show when={selectionMode()} fallback={

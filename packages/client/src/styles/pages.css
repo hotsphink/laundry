@@ -586,6 +586,24 @@
   text-align: left;
 }
 
+/* Steers an iOS join away from a browser that can't install the app. */
+.join-browser-warning {
+  margin-top: var(--space-6);
+  padding: var(--space-5);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius);
+  background: var(--warning-soft);
+  text-align: left;
+}
+
+.join-browser-warning p {
+  margin: 0;
+}
+
+.join-browser-warning p + p {
+  margin-top: var(--space-3);
+}
+
 .receive-saved {
   display: flex;
   flex-direction: column;

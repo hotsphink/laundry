@@ -10,6 +10,7 @@ import type { EndpointStatus } from "../store/endpointStatuses.js";
 import { countUnboundLocalBoards, discardUnboundLocalBoards } from "../db/operations.js";
 import { setSidebarOpen } from "../store/sidebarStore.js";
 import { serverIdentities } from "../sync/primaryConnection.js";
+import { currentNonSafariIosBrowser } from "../utils/iosBrowser.js";
 
 type Step =
   | "invalid"
@@ -59,6 +60,10 @@ const JoinPage: Component = () => {
   const [grantInfo, setGrantInfo] = createSignal<GrantInfo | null>(null);
   const [unboundBoards, setUnboundBoards] = createSignal(0);
   const [keepChoice, setKeepChoice] = createSignal<"keep" | "discard" | null>(null);
+  const [linkCopied, setLinkCopied] = createSignal(false);
+  // A join in a non-Safari iOS browser strands the account in that browser,
+  // out of reach of a Home Screen app, which only Safari installs.
+  const wrongIosBrowser = currentNonSafariIosBrowser();
   // Endpoints created speculatively while probing, whether the default or a
   // manual-host guess, that turned out NOT to match the link. Clean them up so
   // a failed guess does not linger as a dead row in AdminPage's endpoint
@@ -278,6 +283,14 @@ const JoinPage: Component = () => {
     setStep("connecting");
   };
 
+  /** Whether to steer this join to Safari. Someone already registered here
+   * has settled on this browser, so leave them be. */
+  const suggestSafari = () => wrongIosBrowser !== null && !alreadyRegistered();
+
+  const copyLink = () => {
+    navigator.clipboard.writeText(window.location.href).then(() => setLinkCopied(true), console.error);
+  };
+
   const goHome = () => {
     setSidebarOpen(true);
     navigate("/");
@@ -354,9 +367,27 @@ const JoinPage: Component = () => {
                   </fieldset>
                 </div>
               </Show>
+              <Show when={suggestSafari()}>
+                <div class="join-browser-warning" role="note">
+                  <p>
+                    <strong>Want Listr as an app on this device?</strong> Open this link in Safari instead. Joining
+                    here keeps your account and boards in {wrongIosBrowser}, and Safari can't see them. A one-person
+                    link also stops working once it's used here.
+                  </p>
+                  <p class="field-hint">Copy the link, then paste it into Safari's address bar.</p>
+                </div>
+              </Show>
               <div class="actions actions-center">
                 <button class="btn-ghost" type="button" onClick={goHome}>Cancel</button>
-                <button class="btn-primary" type="button" onClick={doJoin}>Join</button>
+                <Show
+                  when={suggestSafari()}
+                  fallback={<button class="btn-primary" type="button" onClick={doJoin}>Join</button>}
+                >
+                  <button class="btn-ghost" type="button" onClick={doJoin}>Join here anyway</button>
+                  <button class="btn-primary" type="button" onClick={copyLink}>
+                    {linkCopied() ? "Copied!" : "Copy link for Safari"}
+                  </button>
+                </Show>
               </div>
             </>
           )}

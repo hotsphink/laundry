@@ -1,4 +1,4 @@
-import { type Component, createSignal, createEffect, onCleanup, Show } from "solid-js";
+import { type Component, createSignal, createEffect, createMemo, onCleanup, Show } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import type { Board } from "@listr/shared";
 import QRCode from "qrcode";
@@ -54,14 +54,21 @@ const BoardShareModal: Component<Props> = (props) => {
   let urlCopyTimer: ReturnType<typeof setTimeout> | null = null;
   onCleanup(() => { if (urlCopyTimer) clearTimeout(urlCopyTimer); });
 
-  const title = () => props.board?.name ?? props.group?.name ?? "";
+  // Memos, not plain accessors: the grant effect below must rerun only when
+  // these values change. Dexie hands over a fresh board object on every write,
+  // including the sync_key write this modal itself makes, and tracking the
+  // object would issue a second, orphaned grant.
+  const title = createMemo(() => props.board?.name ?? props.group?.name ?? "");
+  const isGroup = createMemo(() => !!props.group);
 
   /** A guest grant mints the recipient an account, which is the only way
    * someone with no account on this server can sync at all. Issuing one needs
    * the `invite` cap; without it the best available is a `share` grant, which
    * hands a key to someone who already has an account here. */
-  const canInvite = () => primaryIdentity()?.caps.includes("invite") ?? false;
-  const connected = () => primaryEndpointId() !== null && primaryIdentity() !== null;
+  const canInvite = createMemo(() => primaryIdentity()?.caps.includes("invite") ?? false);
+  const serverId = createMemo(() => primaryIdentity()?.server_id ?? null);
+  const endpointId = createMemo(primaryEndpointId);
+  const connected = () => endpointId() !== null && serverId() !== null;
 
   // Reset on close so the next open never shows the previous board's link.
   createEffect(() => {
@@ -115,15 +122,15 @@ const BoardShareModal: Component<Props> = (props) => {
   // Receive the create_grant reply and turn it into a link plus QR.
   createEffect(() => {
     if (!props.open) return;
-    const epId = primaryEndpointId();
-    const identity = primaryIdentity();
-    if (!epId || !identity) return;
+    const epId = endpointId();
+    const sid = serverId();
+    if (!epId || !sid) return;
 
     let cancelled = false;
     const unsubscribe = syncClient.onGrantReply(epId, (msg) => {
       if (cancelled) return;
       if (msg.type === "grant_created") {
-        buildJoinUrl(identity.server_id, msg.grant_id, msg.secret, props.board?.id)
+        buildJoinUrl(sid, msg.grant_id, msg.secret, props.board?.id)
           .then(async (url) => {
             if (cancelled) return;
             setShareUrl(url);
@@ -149,9 +156,9 @@ const BoardShareModal: Component<Props> = (props) => {
     // Name the key only for a deliberate group. Naming an individual board's
     // key would promote it to its own sidebar heading on the recipient's
     // device, when it belongs in the generic shared bucket.
-    const payloadName = props.group ? name : undefined;
-    const epId = primaryEndpointId();
-    if (!props.open || !key || !epId || !primaryIdentity()) return;
+    const payloadName = isGroup() ? name : undefined;
+    const epId = endpointId();
+    if (!props.open || !key || !epId || !serverId()) return;
 
     setShareUrl(null);
     setQrDataUrl(null);

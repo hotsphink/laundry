@@ -1,3 +1,4 @@
+import { batch } from "solid-js";
 import { db, type ClientIdentity, type ServerIdentity } from "../db/database.js";
 import { setServerIntegrations } from "../store/integrationCatalog.js";
 import { removeKeyLocal } from "../db/keyCleanup.js";
@@ -208,8 +209,12 @@ class EndpointConnection {
         }
 
         if (msg.type === "needs_grant") {
-          this.setPhase({ phase: "needs_grant", serverId: this.challengeServerId ?? undefined });
-          this.callbacks.onNeedsGrant(this.makeSend(ws), this.challengeServerId ?? "");
+          // Batched so no effect sees the phase before the sender is registered.
+          // See handleOk.
+          batch(() => {
+            this.setPhase({ phase: "needs_grant", serverId: this.challengeServerId ?? undefined });
+            this.callbacks.onNeedsGrant(this.makeSend(ws), this.challengeServerId ?? "");
+          });
           return;
         }
 
@@ -311,8 +316,14 @@ class EndpointConnection {
     const userKeys: ServerUserKey[] = Array.isArray(msg.user_keys) ? msg.user_keys : [];
     if (Array.isArray(msg.integrations)) setServerIntegrations(serverId, msg.integrations);
 
-    this.setPhase({ phase: "ready", serverId });
-    this.callbacks.onReady(this.makeSend(ws), serverId, homeKey, userId, caps, displayName, userKeys);
+    // Batch the phase change with onReady, which registers this connection's
+    // sender. UI effects run synchronously on the status change, and one that
+    // sends on "ready" (BoardShareModal's createGrant) would otherwise find no
+    // sender and fail.
+    batch(() => {
+      this.setPhase({ phase: "ready", serverId });
+      this.callbacks.onReady(this.makeSend(ws), serverId, homeKey, userId, caps, displayName, userKeys);
+    });
   }
 
   private setPhase(status: EndpointStatus): void {

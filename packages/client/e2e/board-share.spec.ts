@@ -119,6 +119,13 @@ test.describe("board sharing", () => {
       // server hash did its job.
       const endpoints = await readStore<{ host: string; last_server_id: string }>(recipient, "sync_endpoints");
       expect(endpoints.map((e) => e.last_server_id)).toContain(server.serverId);
+
+      // Opening the dialog gave the board its first sync_key. That write must
+      // not re-issue the grant, which would leave a live link nobody holds.
+      const boards = await readStore<{ name: string; sync_key?: string }>(page, "boards");
+      const key = boards.find((b) => b.name === "Camping Trip")?.sync_key;
+      expect(key).toBeTruthy();
+      expect(server.grantCountFor(key!)).toBe(1);
     } finally {
       await recipientContext.close();
     }

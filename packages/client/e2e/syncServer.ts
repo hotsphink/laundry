@@ -54,6 +54,9 @@ export interface TestSyncServer {
   output(): string;
   /** Issue a grant and return its join link as a path, ready for page.goto. */
   issueGrant(options: GrantOptions): string;
+  /** How many grants have been issued for `payload`, by anyone, whether
+   * redeemed or not. */
+  grantCountFor(payload: string): number;
   stop(): Promise<void>;
 }
 
@@ -164,6 +167,20 @@ export async function startTestSyncServer(options: TestSyncServerOptions = {}): 
       const link = out.match(/(#\/join\/\S+)/)?.[1];
       if (!link) throw new Error(`could not find a join link in:\n${out}`);
       return `/${link}`;
+    },
+
+    grantCountFor(payload: string): number {
+      const out = execFileSync(
+        TSX,
+        [
+          "-e",
+          `import { openDb } from ${JSON.stringify(join(SERVER_DIR, "src/db.ts"))};` +
+            `process.stdout.write(String(openDb(${JSON.stringify(dbPath)}).listGrants()` +
+            `.filter((g) => g.payload === ${JSON.stringify(payload)}).length));`,
+        ],
+        { env, encoding: "utf8" },
+      );
+      return Number(out.trim());
     },
 
     async stop(): Promise<void> {

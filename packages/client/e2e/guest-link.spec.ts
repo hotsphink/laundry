@@ -24,6 +24,7 @@ import { startTestSyncServer, type TestSyncServer } from "./syncServer.js";
 const GUEST_KEY_COLD = "e2e-guest-key-cold";
 const GUEST_KEY_WARM = "e2e-guest-key-warm";
 const SHARE_KEY = "e2e-share-key";
+const GUEST_KEY_IOS = "e2e-guest-key-ios";
 
 test.describe.configure({ mode: "serial" });
 
@@ -99,6 +100,7 @@ test.describe("guest links", () => {
     // already resolve to a route of its own, so it is never asked for a host.
     await expect(page.locator(".receive-card h2")).toHaveText("You're invited", { timeout: 30_000 });
     await expect(page.getByRole("button", { name: "Try this host" })).toHaveCount(0);
+    await expect(page.locator(".join-browser-warning")).toHaveCount(0);
     await page.getByRole("button", { name: "Join" }).click();
     await expect(page.locator(".receive-saved")).toContainText("You're in!", { timeout: 30_000 });
 
@@ -114,6 +116,40 @@ test.describe("guest links", () => {
 
     const keys = await readStore<{ key: string }>(page, "shared_keys");
     expect(keys.map((k) => k.key)).toEqual(expect.arrayContaining([GUEST_KEY_WARM, SHARE_KEY]));
+  });
+
+  // On iOS, a join in Firefox strands the account in Firefox, where Safari,
+  // the only browser that installs the app, cannot see it.
+  test("an iOS browser other than Safari suggests Safari before joining", async ({ browser }) => {
+    test.setTimeout(90_000);
+    const link = server.issueGrant({ kind: "guest", payload: GUEST_KEY_IOS, greeting: "Chores" });
+
+    const context = await browser.newContext({
+      userAgent:
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/142.0 Mobile/15E148 Safari/605.1.15",
+    });
+    try {
+      const page = await context.newPage();
+      await clearDatabase(page);
+      await addSyncEndpoint(page, {
+        host: "localhost",
+        port: server.port,
+        secure: false,
+        lastServerId: server.serverId,
+      });
+      await page.goto(link);
+
+      await expect(page.locator(".receive-card h2")).toHaveText("You're invited", { timeout: 30_000 });
+      await expect(page.locator(".join-browser-warning")).toContainText("Open this link in Safari instead");
+      await expect(page.locator(".join-browser-warning")).toContainText("in Firefox");
+      await expect(page.getByRole("button", { name: "Copy link for Safari" })).toBeVisible();
+
+      // Still possible to join here, for someone who means to.
+      await page.getByRole("button", { name: "Join here anyway" }).click();
+      await expect(page.locator(".receive-saved")).toContainText("You're in!", { timeout: 30_000 });
+    } finally {
+      await context.close();
+    }
   });
 
   test("a guest link that someone else already used fails with a message saying so", async ({ page }) => {
