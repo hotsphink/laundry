@@ -34,6 +34,7 @@ import BoardShareModal from "../components/BoardShareModal.js";
 import CloneBoardModal from "../components/CloneBoardModal.js";
 import ShareIcon from "../components/ShareIcon.js";
 import BoardMissing from "../components/BoardMissing.js";
+import { lastListId, rememberBoard, rememberList } from "../store/lastViewed.js";
 
 // Stable sentinel object for the inline-add dummy row. Using a single reference
 // lets SolidJS <For> reuse the DOM node when the dummy changes position.
@@ -374,6 +375,66 @@ const ListView: Component = () => {
   });
 
   const visibleLists = allLists;
+
+  // Remember this board, and which of its lists is in view, so a restart comes
+  // back here. The first list whose trailing half is still showing counts as
+  // in view: the column snapped to the left edge in the side-by-side layout,
+  // or the one at the top when stacked.
+  createEffect(() => {
+    const b = board();
+    if (b) rememberBoard(b.id);
+  });
+
+  const listInView = (): string | null => {
+    const el = multiListViewEl;
+    if (!el) return null;
+    const vertical = el.classList.contains("multi-list-vertical");
+    const box = el.getBoundingClientRect();
+    // The page may scroll instead of the container, so clip to the viewport.
+    const start = vertical ? Math.max(box.top, 0) : Math.max(box.left, 0);
+    for (const col of el.querySelectorAll<HTMLElement>(":scope > .multi-list-column")) {
+      const r = col.getBoundingClientRect();
+      const extent = vertical ? Math.min(r.height, window.innerHeight) : r.width;
+      if ((vertical ? r.bottom : r.right) - start > extent / 2) return col.dataset.listId ?? null;
+    }
+    return null;
+  };
+
+  let rememberTimer: ReturnType<typeof setTimeout> | undefined;
+  const onAnyScroll = () => {
+    clearTimeout(rememberTimer);
+    rememberTimer = setTimeout(() => {
+      const boardId = board()?.id;
+      const listId = listInView();
+      if (boardId && listId && allLists().some((l) => l.id === listId && l.board_id === boardId)) rememberList(boardId, listId);
+    }, 200);
+  };
+  // Capture, since whichever element scrolls (the columns or the page) varies by layout.
+  document.addEventListener("scroll", onAnyScroll, { capture: true, passive: true });
+  onCleanup(() => {
+    document.removeEventListener("scroll", onAnyScroll, { capture: true });
+    clearTimeout(rememberTimer);
+  });
+
+  // Bring the remembered list back into view once per board, after its items
+  // load, since in the stacked modes earlier lists' heights decide where it is.
+  let restoredBoardId: string | null = null;
+  createEffect(() => {
+    const boardId = board()?.id;
+    const lists = allLists();
+    const loaded = itemsByList();
+    if (!boardId || boardId === restoredBoardId || !lists.length) return;
+    if (lists.some((l) => l.board_id !== boardId || !loaded.has(l.id))) return;
+    restoredBoardId = boardId;
+    const listId = lastListId(boardId);
+    if (!listId) return;
+    requestAnimationFrame(() => {
+      const col = multiListViewEl?.querySelector<HTMLElement>(`:scope > [data-list-id="${listId}"]`);
+      if (!col) return;
+      const vertical = appViewMode() !== "list";
+      col.scrollIntoView({ behavior: "instant", block: vertical ? "start" : "nearest", inline: vertical ? "nearest" : "start" });
+    });
+  });
 
   // Cap horizontal scrolling at the last list. Mandatory snapping rests on that
   // column only when its snap position is reachable, which takes a viewport's

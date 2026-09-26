@@ -16,6 +16,7 @@ import { initAssetStore } from "./sync/assetStore.js";
 import { selectionMode } from "./store/selectionMode.js";
 import { sidebarOpen, setSidebarOpen } from "./store/sidebarStore.js";
 import { isDragging } from "./hooks/useSortable.js";
+import { lastBoardId } from "./store/lastViewed.js";
 
 const Layout: Component<{ children?: any }> = (props) => {
   const location = useLocation();
@@ -120,9 +121,13 @@ const Home: Component = () => {
   const navigate = useNavigate();
   const boards = from(liveQuery(() => db.boards.orderBy("position").toArray()));
 
+  // Return to the board this device last showed, if it still has it.
   createEffect(() => {
     const allBoards = boards();
-    if (allBoards && allBoards.length > 0) navigate(`/board/${allBoards[0].id}`, { replace: true });
+    if (!allBoards || allBoards.length === 0) return;
+    const last = lastBoardId();
+    const target = allBoards.find((b) => b.id === last) ?? allBoards[0];
+    navigate(`/board/${target.id}`, { replace: true });
   });
 
   return (
