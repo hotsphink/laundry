@@ -4,6 +4,8 @@ import Modal from "./Modal.js";
 import FormatEditor, { formatHasErrors, rankSampleItems } from "./FormatEditor.js";
 import { db } from "../db/database.js";
 import { itemsWithOverlay } from "../db/overlay.js";
+import type { FinishedDisplay } from "../db/sections.js";
+import { finishedDisplay, setFinishedDisplay } from "../store/finishedDisplay.js";
 
 export interface ListFormData {
   name: string;
@@ -31,6 +33,7 @@ const ListFormModal: Component<Props> = (props) => {
   const [overrideFormat, setOverrideFormat] = createSignal(false);
   const [formatError, setFormatError] = createSignal<string | null>(null);
   const [sampleItems, setSampleItems] = createSignal<Item[]>([]);
+  const [finished, setFinished] = createSignal<FinishedDisplay>("mixed");
 
   createEffect(() => {
     if (props.open) {
@@ -40,6 +43,7 @@ const ListFormModal: Component<Props> = (props) => {
       setFormatOverride(props.initial?.format?.text ?? "");
       setFormatError(null);
       setSampleItems([]);
+      setFinished(props.initial ? finishedDisplay(props.initial.id) : "mixed");
       const list = props.initial;
       const board = list && props.boards.find((b) => b.id === list.board_id);
       if (list) {
@@ -52,6 +56,7 @@ const ListFormModal: Component<Props> = (props) => {
   });
 
   const selectedBoard = () => props.boards.find((b) => b.id === boardId());
+  const hasTodo = () => selectedBoard()?.schema.some((a) => a.type === "todo") ?? false;
 
   const handleSubmit = (e: Event) => {
     e.preventDefault();
@@ -61,6 +66,7 @@ const ListFormModal: Component<Props> = (props) => {
       setFormatError("Fix the errors in the format before saving.");
       return;
     }
+    if (props.initial && hasTodo()) setFinishedDisplay(props.initial.id, finished());
     props.onSave({
       name: name().trim(),
       board_id: boardId(),
@@ -136,6 +142,23 @@ const ListFormModal: Component<Props> = (props) => {
               </Show>
             </div>
           )}
+        </Show>
+        <Show when={props.initial && hasTodo()}>
+          <div class="form-field">
+            <label class="field-label" for={`${uid}-finished`}>Finished items</label>
+            <select
+              id={`${uid}-finished`}
+              value={finished()}
+              onChange={(e) => setFinished(e.currentTarget.value as FinishedDisplay)}
+            >
+              <option value="mixed">In place</option>
+              <option value="end">At the end</option>
+              <option value="hidden">Hidden</option>
+            </select>
+            <div class="field-hint">
+              Done, cancelled, and skipped items. Applies on this device only and keeps the shared order.
+            </div>
+          </div>
         </Show>
         <div class="actions">
           <button type="button" class="btn-ghost" onClick={props.onClose}>

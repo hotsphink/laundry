@@ -17,11 +17,12 @@ export function useSortable(
     onCrossMove?: (itemId: string, toEl: HTMLElement, predecessorId: string | null) => Promise<void>;
     onOptimisticReorder?: (updates: { id: string; after_id: string | null }[]) => void;
     onDummyReorder?: (newAfterId: string | null) => void;
-    getDummyAfterId?: () => string | null;
+    /** Map the display entry an item was dropped after to its new after_id. Defaults to that entry itself. */
+    resolveAfterId?: (movedId: string, predecessorId: string | null) => string | null;
     scrollEl?: HTMLElement;
   },
 ) {
-  const { onCrossMove, onOptimisticReorder, onDummyReorder, getDummyAfterId, scrollEl, ...sortableOptions } = options ?? {};
+  const { onCrossMove, onOptimisticReorder, onDummyReorder, resolveAfterId, scrollEl, ...sortableOptions } = options ?? {};
 
   // Edge-scroll state
   let dragX = 0;
@@ -343,17 +344,13 @@ export function useSortable(
       const movedId = (evt.item as HTMLElement).dataset.itemId ?? "";
       if (!movedId) return;
 
+      const newAfterId = resolveAfterId ? resolveAfterId(movedId, rawNewAfterId) : rawNewAfterId;
+
       // Dummy was dragged within this list — update its position without a DB write.
       if (movedId === DUMMY_ITEM_ID) {
-        // Predecessor can't be the dummy itself, so rawNewAfterId is a real item ID or null.
-        onDummyReorder?.(rawNewAfterId);
+        onDummyReorder?.(newAfterId);
         return;
       }
-
-      // A real item was dropped after the dummy — resolve to the dummy's real predecessor.
-      const newAfterId = rawNewAfterId === DUMMY_ITEM_ID
-        ? (getDummyAfterId?.() ?? null)
-        : rawNewAfterId;
 
       const currentItems = getItems();
       const updates = reorderByAfterId(currentItems, movedId, newAfterId);

@@ -35,6 +35,8 @@ import CloneBoardModal from "../components/CloneBoardModal.js";
 import ShareIcon from "../components/ShareIcon.js";
 import BoardMissing from "../components/BoardMissing.js";
 import { lastListId, rememberBoard, rememberList } from "../store/lastViewed.js";
+import { finishedDisplay } from "../store/finishedDisplay.js";
+import { dummyDisplayIndex, sectionedDropAfterId, sectionedOrder, type FinishedDisplay } from "../db/sections.js";
 
 // Stable sentinel object for the inline-add dummy row. Using a single reference
 // lets SolidJS <For> reuse the DOM node when the dummy changes position.
@@ -105,6 +107,19 @@ const TodoIcon = ({ state }: { state: TodoState }) => {
   );
 };
 
+
+// Evenly stacked lines for brief display; lines with indented sub-lines for verbose.
+const DensityIcon: Component<{ verbose: boolean }> = (props) => (
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+    <Show
+      when={props.verbose}
+      fallback={<path d="M2.5 3h11M2.5 6.33h11M2.5 9.67h11M2.5 13h11" />}
+    >
+      <path d="M2.5 3h11M2.5 10h11" />
+      <path d="M5.5 5.75h8M5.5 12.75h8" stroke-width="1" />
+    </Show>
+  </svg>
+);
 
 const ListView: Component = () => {
   const params = useParams();
@@ -581,12 +596,48 @@ const ListView: Component = () => {
     if (item) await updateItem(item.id, applyPick(item, attr, choice, value));
   };
 
+  // Finished-item placement for a list on this device. Only a board with a todo attribute has finished items.
+  const finishedModeFor = (listId: string): FinishedDisplay =>
+    todoAttr() ? finishedDisplay(listId) : "mixed";
+
+  // The inline-add row always counts as open.
+  const isOpenItem = (item: Item | DummyShim): boolean =>
+    item.id === DUMMY_ITEM_ID || getTodoState(item as Item) === "default";
+
+  // Items as shown: filtered, then arranged by finished-item placement.
   const itemsForList = (listId: string): Item[] => {
     const allForList = itemsByList().get(listId) ?? [];
     const q = filterQuery().toLowerCase().trim();
-    if (!q) return allForList;
-    return allForList.filter((item) =>
+    const filtered = !q ? allForList : allForList.filter((item) =>
       effectiveValues(item, overlays[item.id]).some((val) => val != null && String(val).toLowerCase().includes(q)));
+    return sectionedOrder(filtered, isOpenItem, finishedModeFor(listId));
+  };
+
+  // Shown items with the inline-add row spliced in after the nearest shown item that precedes it in the chain.
+  const displayItemsFor = (listId: string): (Item | DummyShim)[] => {
+    const shown = itemsForList(listId);
+    const mode = finishedModeFor(listId);
+    const idx = dummyDisplayIndex(
+      itemsByList().get(listId) ?? [],
+      shown,
+      mode === "mixed" ? () => true : isOpenItem,
+      resolvedDummyAfterId(listId),
+    );
+    return (shown as (Item | DummyShim)[]).toSpliced(idx + 1, 0, DUMMY_SHIM);
+  };
+
+  // The after_id for an item (or the inline-add row) dropped just after display entry `predId`.
+  // `moved` may come from another list.
+  const resolveDropAfterId = (listId: string, moved: string | Item, predId: string | null): string | null => {
+    const dummyAfterId = resolvedDummyAfterId(listId);
+    if (finishedModeFor(listId) === "mixed") {
+      return predId === DUMMY_ITEM_ID ? dummyAfterId : predId;
+    }
+    const dummy: DummyShim = { ...DUMMY_SHIM, after_id: dummyAfterId };
+    const display = displayItemsFor(listId).map((t) => t.id === DUMMY_ITEM_ID ? dummy : t);
+    const movedEntry = typeof moved === "string" ? display.find((t) => t.id === moved) : moved;
+    if (!movedEntry) return predId;
+    return sectionedDropAfterId(display, isOpenItem, movedEntry, predId, (t) => t.id === DUMMY_ITEM_ID);
   };
 
   const handleAddItem = async (data: { title: string; attributes: Record<string, unknown> }) => {
@@ -897,10 +948,7 @@ const ListView: Component = () => {
 
     const toItems = itemsByList().get(toListId) ?? []; // chain order
 
-    // Resolve dummy predecessor: use the dummy's real after_id instead.
-    const predecessorId = rawPredecessorId === DUMMY_ITEM_ID
-      ? resolvedDummyAfterId(toListId)
-      : rawPredecessorId;
+    const predecessorId = resolveDropAfterId(toListId, sourceItem, rawPredecessorId);
 
     // Splice fix-ups: the target item that followed the insertion point now
     // follows the moved item; the source item that followed the moved item skips
@@ -1055,27 +1103,7 @@ const ListView: Component = () => {
                   const allItemsForList = () => itemsByList().get(list.id) ?? [];
 
                   // Display list for list-view: real items (filtered) with the dummy spliced in.
-                  const displayItems = createMemo((): (Item | DummyShim)[] => {
-                    const allForList = itemsByList().get(list.id) ?? [];
-                    const dummyAfterId = resolvedDummyAfterId(list.id);
-
-                    const insertIdx = dummyAfterId === null
-                      ? 0
-                      : (() => {
-                          const idx = allForList.findIndex(i => i.id === dummyAfterId);
-                          return idx === -1 ? allForList.length : idx + 1;
-                        })();
-
-                    const withDummy = (allForList as (Item | DummyShim)[]).toSpliced(insertIdx, 0, DUMMY_SHIM);
-
-                    const q = filterQuery().toLowerCase().trim();
-                    if (!q) return withDummy;
-                    return withDummy.filter((item) => {
-                      if (item.id === DUMMY_ITEM_ID) return true;
-                      const it = item as Item;
-                      return effectiveValues(it, overlays[it.id]).some((val) => val != null && String(val).toLowerCase().includes(q));
-                    });
-                  });
+                  const displayItems = createMemo(() => displayItemsFor(list.id));
 
                   const applyOptimisticReorder = (updates: { id: string; after_id: string | null }[]) => {
                     const updatesMap = new Map(updates.map(u => [u.id, u.after_id]));
@@ -1121,7 +1149,7 @@ const ListView: Component = () => {
                           title="Toggle brief or verbose display"
                           aria-pressed={listDisplay(list) === "verbose"}
                           onClick={() => updateListAttribute(list.id, "display", listDisplay(list) === "verbose" ? "brief" : "verbose")}
-                        >*</button>
+                        ><DensityIcon verbose={listDisplay(list) === "verbose"} /></button>
                         <button
                           class="btn-icon btn-icon-quiet multi-list-add-btn"
                           type="button"
@@ -1150,7 +1178,7 @@ const ListView: Component = () => {
                               onCrossMove: handleCrossListMove,
                               onOptimisticReorder: applyOptimisticReorder,
                               onDummyReorder: (newAfterId) => setDummyAfterId(list.id, newAfterId),
-                              getDummyAfterId: () => resolvedDummyAfterId(list.id),
+                              resolveAfterId: (movedId, predId) => resolveDropAfterId(list.id, movedId, predId),
                               scrollEl: multiListViewEl,
                             })}
                           >
@@ -1267,7 +1295,7 @@ const ListView: Component = () => {
                                 onCrossMove: handleCrossListMove,
                                 onOptimisticReorder: applyOptimisticReorder,
                                 onDummyReorder: (newAfterId) => setDummyAfterId(list.id, newAfterId),
-                                getDummyAfterId: () => resolvedDummyAfterId(list.id),
+                                resolveAfterId: (movedId, predId) => resolveDropAfterId(list.id, movedId, predId),
                                 scrollEl: multiListViewEl,
                               })}>
                                 <For each={displayItems()}>
@@ -1334,7 +1362,7 @@ const ListView: Component = () => {
                               onCrossMove: handleCrossListMove,
                               onOptimisticReorder: applyOptimisticReorder,
                               onDummyReorder: (newAfterId) => setDummyAfterId(list.id, newAfterId),
-                              getDummyAfterId: () => resolvedDummyAfterId(list.id),
+                              resolveAfterId: (movedId, predId) => resolveDropAfterId(list.id, movedId, predId),
                               scrollEl: multiListViewEl,
                             })}>
                               <For each={displayItems()}>
