@@ -1,4 +1,4 @@
-import { type Component, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
+import { type Component, type JSX, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, splitProps } from "solid-js";
 import { compileFormat, escapeFormatText, formatDiagnostic, isSet, LIST_ATTR_PREFIX, LIST_SCHEMA, listDisplay, type AttributeDefinition, type Item, type ListDisplay } from "@listr/shared";
 import FormattedText from "./FormattedText.js";
 import { createAsset } from "../db/assets.js";
@@ -266,6 +266,44 @@ const FormatEditor: Component<Props> = (props) => {
         )}
       </Show>
     </>
+  );
+};
+
+interface CollapsibleProps extends Props {
+  label: JSX.Element;
+  /** Shown under the label whether or not the editor is open. */
+  description?: JSX.Element;
+  /** Set to force the editor open, eg to show errors. */
+  expanded?: boolean;
+}
+
+/** A FormatEditor that shows only the format's first line until expanded. */
+export const CollapsibleFormatEditor: Component<CollapsibleProps> = (props) => {
+  const [local, editorProps] = splitProps(props, ["label", "description", "expanded"]);
+  const [open, setOpen] = createSignal(false);
+  createEffect(() => { if (local.expanded) setOpen(true); });
+  const lines = () => props.value.split("\n");
+  const moreLines = () => lines().slice(1).filter((l) => l.trim() !== "").length;
+
+  return (
+    <details class="format-collapsible" open={open()} onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary>
+        <span class="field-label">{local.label}</span>
+        <Show when={local.description}>
+          <span class="field-hint format-collapsible-desc">{local.description}</span>
+        </Show>
+        <Show when={!open()}>
+          <span class="format-first-line">{lines()[0] || props.placeholder}</span>
+          <Show when={moreLines() > 0}>
+            <span class="field-hint">+{moreLines()} more {moreLines() === 1 ? "line" : "lines"}</span>
+          </Show>
+        </Show>
+      </summary>
+      <Show when={open()}>
+        <label class="sr-only" for={props.id}>{local.label}</label>
+        <FormatEditor {...editorProps} />
+      </Show>
+    </details>
   );
 };
 

@@ -24,6 +24,43 @@
   padding: var(--space-1);
 }
 
+/* Collapsed, a format shows only its first line. */
+.format-collapsible > summary {
+  cursor: pointer;
+}
+
+.format-collapsible > summary .field-label {
+  display: inline;
+}
+
+.format-first-line {
+  display: block;
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.format-collapsible-desc {
+  display: block;
+}
+
+/* Board settings shown inside a list's editor. */
+.board-format-section {
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-5);
+}
+
+.format-collapsible[open] > summary {
+  margin-bottom: var(--space-2);
+}
+
 .format-textarea {
   min-height: 3lh;
   resize: vertical;

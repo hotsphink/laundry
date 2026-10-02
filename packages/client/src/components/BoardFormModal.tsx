@@ -3,7 +3,7 @@ import { compileFormat, FORMAT_VERSION, type AttributeDefinition, type Board, ty
 import Modal from "./Modal.js";
 import SchemaEditor from "./SchemaEditor.js";
 import IntegrationsEditor from "./IntegrationsEditor.js";
-import FormatEditor, { formatHasErrors, rankSampleItems } from "./FormatEditor.js";
+import { CollapsibleFormatEditor, formatHasErrors, rankSampleItems } from "./FormatEditor.js";
 import { db } from "../db/database.js";
 import { itemsWithOverlay } from "../db/overlay.js";
 import { availableIntegrations } from "../store/integrationCatalog.js";
@@ -12,7 +12,8 @@ function generateFormat(schema: AttributeDefinition[]): string {
   return ["[title]", ...schema.map((a) => `?[${a.key}]`)].join(" ");
 }
 
-interface ListOverride {
+export interface ListOverride {
+  id: string;
   name: string;
   text: string;
   /** Whether the override compiled cleanly against the board as saved. */
@@ -20,9 +21,10 @@ interface ListOverride {
 }
 
 /** The board's lists that have their own format, for spotting edits that break them. */
-async function listOverridesForBoard(board: Board): Promise<ListOverride[]> {
+export async function listOverridesForBoard(board: Board): Promise<ListOverride[]> {
   const lists = await db.lists.where("board_id").equals(board.id).sortBy("position");
   return lists.flatMap((l) => l.format == null ? [] : [{
+    id: l.id,
     name: l.name,
     text: l.format.text,
     okBefore: !compileFormat(l.format.text, board.schema, board.format.text).hasErrors,
@@ -35,7 +37,7 @@ async function sampleItemsForBoard(board: Board): Promise<Item[]> {
   return rankSampleItems(await itemsWithOverlay(board, await db.items.where("list_id").anyOf(listIds).toArray()));
 }
 
-function brokenListsMessage(names: string[]): string {
+export function brokenListsMessage(names: string[]): string {
   const quoted = names.map((n) => `"${n}"`).join(", ");
   return names.length === 1
     ? `These changes break the custom format of list ${quoted}.`
@@ -215,8 +217,9 @@ const BoardFormModal: Component<Props> = (props) => {
           </div>
         </div>
         <div class="form-field">
-          <label class="field-label" for={`${uid}-format`}>Format</label>
-          <FormatEditor
+          <CollapsibleFormatEditor
+            label="Format"
+            expanded={formatError() !== null}
             id={`${uid}-format`}
             value={formatText()}
             onInput={handleFormatInput}

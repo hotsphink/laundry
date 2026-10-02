@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { clearDatabase, createBoard, createListInBoard, addItemToList, addItemViaModal } from "./helpers.js";
+import { clearDatabase, createBoard, createListInBoard, addItemToList, addItemViaModal, expandFormat } from "./helpers.js";
 
 test.describe("custom attributes", () => {
   test.beforeEach(async ({ page }) => {
@@ -146,6 +146,7 @@ test.describe("custom attributes", () => {
     await page.locator(".context-menu-item", { hasText: "Edit" }).click();
     modal = page.locator(".modal");
     await expect(modal.locator(".field-warning")).toHaveCount(0);
+    await expandFormat(modal);
     await modal.getByLabel("Format", { exact: true }).fill("[title]");
     await expect(modal.locator(".field-warning")).toContainText('list "Mine"');
 
@@ -172,6 +173,7 @@ test.describe("custom attributes", () => {
     await page.locator(".sidebar-board", { hasText: "Preview" }).click({ button: "right" });
     await page.locator(".context-menu-item", { hasText: "Edit" }).click();
     const modal = page.locator(".modal");
+    await expandFormat(modal);
     const preview = modal.locator(".format-preview");
     await expect(preview).toHaveText("Rich (1979)");
     await modal.getByLabel("Sample").selectOption({ label: "Plain" });
@@ -186,6 +188,7 @@ test.describe("custom attributes", () => {
 
     await page.locator(".sidebar-board", { hasText: "Keys" }).click({ button: "right" });
     await page.locator(".context-menu-item", { hasText: "Edit" }).click();
+    await expandFormat(page.locator(".modal"));
     const format = page.locator(".modal").getByLabel("Format", { exact: true });
     await format.fill("[title]!");
     await format.press("Control+Enter");
@@ -198,12 +201,51 @@ test.describe("custom attributes", () => {
     await createBoard(page, "Keys2");
     await page.locator(".sidebar-board", { hasText: "Keys2" }).click({ button: "right" });
     await page.locator(".context-menu-item", { hasText: "Edit" }).click();
+    await expandFormat(page.locator(".modal"));
     const format = page.locator(".modal").getByLabel("Format", { exact: true });
     await format.fill("[nope]");
     await format.press("Control+Enter");
 
     await expect(page.locator(".modal .field-error")).toContainText("Fix the errors");
     await expect(page.locator(".modal h2")).toHaveText("Edit Board");
+  });
+
+  test("the board editor shows only the format's first line until expanded", async ({ page }) => {
+    await createBoard(page, "Fold", [], '[title] [tag]\n\ntag="x"');
+    await page.locator(".sidebar-board", { hasText: "Fold" }).click({ button: "right" });
+    await page.locator(".context-menu-item", { hasText: "Edit" }).click();
+    const modal = page.locator(".modal");
+    await expect(modal.locator(".format-first-line")).toHaveText("[title] [tag]");
+    await expect(modal.getByLabel("Format", { exact: true })).toHaveCount(0);
+    await expandFormat(modal);
+    await expect(modal.getByLabel("Format", { exact: true })).toHaveValue('[title] [tag]\n\ntag="x"');
+  });
+
+  test("the list editor edits the board's format without overriding it", async ({ page }) => {
+    await createBoard(page, "Shared");
+    await createListInBoard(page, "One", "Shared");
+    await createListInBoard(page, "Two", "Shared");
+    await expect(page.locator(".page-header h1")).toHaveText("Shared");
+    await addItemToList(page, "Alien");
+
+    await page.locator(".multi-list-column-header", { hasText: "One" }).click({ button: "right" });
+    await page.locator(".context-menu-item", { hasText: "Edit" }).click();
+    const modal = page.locator(".modal");
+    await expect(modal.locator(".format-first-line")).toHaveText("[title]");
+    await expandFormat(modal, "Board format");
+    await modal.getByLabel("Board format (Shared)").fill("[title]!");
+    await modal.getByRole("button", { name: "Save" }).click();
+    await expect(modal).toHaveCount(0);
+
+    await expect(page.locator(".list-view-item:not(.inline-add-item) .formatted-text").first()).toHaveText("Alien!");
+    const stored = await page.evaluate(async () => {
+      const db = (window as any).listr.db;
+      return {
+        board: (await db.boards.toArray()).map((b: any) => b.format.text),
+        lists: (await db.lists.toArray()).map((l: any) => l.format ?? null),
+      };
+    });
+    expect(stored).toEqual({ board: ["[title]!"], lists: [null, null] });
   });
 
   test("board format applies styles and a tooltip and sanitizes markup", async ({ page }) => {

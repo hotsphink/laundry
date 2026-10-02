@@ -677,7 +677,9 @@ const ListView: Component = () => {
   const handleEditList = async (data: ListFormData) => {
     const list = editingList();
     if (!list) return;
-    await updateList(list.id, data);
+    const { board_format, ...listData } = data;
+    if (board_format) await updateBoard(data.board_id, { format: board_format });
+    await updateList(list.id, listData);
     setEditingList(undefined);
   };
 

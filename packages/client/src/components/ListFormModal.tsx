@@ -1,7 +1,8 @@
-import { type Component, createSignal, createEffect, For, Show } from "solid-js";
-import { FORMAT_VERSION, type Board, type FormatSpec, type Item, type List } from "@listr/shared";
+import { type Component, createSignal, createEffect, createMemo, For, Show } from "solid-js";
+import { compileFormat, FORMAT_VERSION, type Board, type FormatSpec, type Item, type List } from "@listr/shared";
 import Modal from "./Modal.js";
-import FormatEditor, { formatHasErrors, rankSampleItems } from "./FormatEditor.js";
+import FormatEditor, { CollapsibleFormatEditor, formatHasErrors, rankSampleItems } from "./FormatEditor.js";
+import { brokenListsMessage, listOverridesForBoard, type ListOverride } from "./BoardFormModal.js";
 import { db } from "../db/database.js";
 import { itemsWithOverlay } from "../db/overlay.js";
 import type { FinishedDisplay } from "../db/sections.js";
@@ -12,6 +13,8 @@ export interface ListFormData {
   board_id: string;
   /** null = use the board's format. */
   format: FormatSpec | null;
+  /** A new format for the list's board, if it was edited here. */
+  board_format?: FormatSpec;
 }
 
 interface Props {
@@ -34,6 +37,10 @@ const ListFormModal: Component<Props> = (props) => {
   const [formatError, setFormatError] = createSignal<string | null>(null);
   const [sampleItems, setSampleItems] = createSignal<Item[]>([]);
   const [finished, setFinished] = createSignal<FinishedDisplay>("mixed");
+  // Edits to the board's format, for the board they were made on.
+  const [boardEdit, setBoardEdit] = createSignal<{ boardId: string; text: string } | null>(null);
+  const [boardFormatError, setBoardFormatError] = createSignal<string | null>(null);
+  const [otherOverrides, setOtherOverrides] = createSignal<ListOverride[]>([]);
 
   createEffect(() => {
     if (props.open) {
@@ -42,6 +49,8 @@ const ListFormModal: Component<Props> = (props) => {
       setOverrideFormat(props.initial?.format != null);
       setFormatOverride(props.initial?.format?.text ?? "");
       setFormatError(null);
+      setBoardEdit(null);
+      setBoardFormatError(null);
       setSampleItems([]);
       setFinished(props.initial ? finishedDisplay(props.initial.id) : "mixed");
       const list = props.initial;
@@ -56,21 +65,52 @@ const ListFormModal: Component<Props> = (props) => {
   });
 
   const selectedBoard = () => props.boards.find((b) => b.id === boardId());
+
+  /** The board's format text, including any edits made here. */
+  const boardFormatText = () => {
+    const edit = boardEdit();
+    return edit && edit.boardId === boardId() ? edit.text : (selectedBoard()?.format.text ?? "[title]");
+  };
+  const boardFormatChanged = () => {
+    const board = selectedBoard();
+    return !!board && boardFormatText() !== board.format.text;
+  };
+
+  // Other lists' formats build on the board's, so watch for edits that break them.
+  createEffect(() => {
+    const board = selectedBoard();
+    setOtherOverrides([]);
+    if (props.open && board) listOverridesForBoard(board).then(setOtherOverrides).catch(console.error);
+  });
+  const brokenLists = createMemo(() => {
+    const board = selectedBoard();
+    if (!board || !boardFormatChanged()) return [];
+    return otherOverrides()
+      .filter((l) => l.id !== props.initial?.id && l.okBefore && compileFormat(l.text, board.schema, boardFormatText()).hasErrors)
+      .map((l) => l.name);
+  });
   const hasTodo = () => selectedBoard()?.schema.some((a) => a.type === "todo") ?? false;
 
   const handleSubmit = (e: Event) => {
     e.preventDefault();
     if (!name().trim() || !boardId()) return;
     const board = selectedBoard();
-    if (overrideFormat() && formatHasErrors(formatOverride(), board?.schema ?? [], board?.format.text)) {
+    if (boardFormatChanged() && formatHasErrors(boardFormatText(), board?.schema ?? [])) {
+      setBoardFormatError("Fix the errors in the board's format before saving.");
+      return;
+    }
+    if (overrideFormat() && formatHasErrors(formatOverride(), board?.schema ?? [], boardFormatText())) {
       setFormatError("Fix the errors in the format before saving.");
       return;
     }
+    const broken = brokenLists();
+    if (broken.length > 0 && !confirm(`${brokenListsMessage(broken)} Save anyway?`)) return;
     if (props.initial && hasTodo()) setFinishedDisplay(props.initial.id, finished());
     props.onSave({
       name: name().trim(),
       board_id: boardId(),
       format: overrideFormat() ? { version: FORMAT_VERSION, text: formatOverride() } : null,
+      board_format: boardFormatChanged() ? { version: FORMAT_VERSION, text: boardFormatText() } : undefined,
     });
   };
 
@@ -109,7 +149,7 @@ const ListFormModal: Component<Props> = (props) => {
                   onChange={(e) => {
                     setOverrideFormat(e.currentTarget.checked);
                     if (e.currentTarget.checked && !formatOverride()) {
-                      setFormatOverride(board().format.text.split("\n")[0]);
+                      setFormatOverride(boardFormatText().split("\n")[0]);
                     }
                   }}
                 />
@@ -128,17 +168,43 @@ const ListFormModal: Component<Props> = (props) => {
                   value={formatOverride()}
                   onInput={(v) => { setFormatOverride(v); setFormatError(null); }}
                   schema={board().schema}
-                  base={board().format.text}
+                  base={boardFormatText()}
                   sampleItems={sampleItems()}
                   listAttributes={props.initial?.attributes}
-                  placeholder={board().format.text.split("\n")[0]}
+                  placeholder={boardFormatText().split("\n")[0]}
                 />
                 <Show when={formatError()}>
                   {(err) => <div class="field-error">{err()}</div>}
                 </Show>
               </Show>
-              <Show when={!overrideFormat()}>
-                <div class="field-hint">Using: {board().format.text.split("\n")[0]}</div>
+            </div>
+          )}
+        </Show>
+        <Show when={selectedBoard()}>
+          {(board) => (
+            <div class="form-field board-format-section">
+              <CollapsibleFormatEditor
+                label={`Board format (${board().name})`}
+                description={
+                  (overrideFormat()
+                    ? "This list's own format builds on the board's format. "
+                    : "This list uses the board's format. ") +
+                  "Edits here change the board's format for every list on it, not just this list."
+                }
+                expanded={boardFormatError() !== null}
+                id={`${uid}-board-format`}
+                value={boardFormatText()}
+                onInput={(v) => { setBoardEdit({ boardId: board().id, text: v }); setBoardFormatError(null); }}
+                schema={board().schema}
+                sampleItems={sampleItems()}
+                listAttributes={props.initial?.attributes}
+                placeholder="[title]"
+              />
+              <Show when={boardFormatError()}>
+                {(err) => <div class="field-error">{err()}</div>}
+              </Show>
+              <Show when={brokenLists().length > 0}>
+                <div class="field-warning" role="status">{brokenListsMessage(brokenLists())}</div>
               </Show>
             </div>
           )}

@@ -142,6 +142,11 @@ export async function fillSchemaField(page: Page, input: Locator, value: string)
   await page.keyboard.type(value);
 }
 
+/** Expand the collapsed format editor in a modal. */
+export async function expandFormat(modal: Locator, label = "Format") {
+  await modal.locator(".format-collapsible > summary", { has: modal.page().locator(".field-label", { hasText: label }) }).click();
+}
+
 export async function createBoard(
   page: Page,
   name: string,
@@ -173,6 +178,7 @@ export async function createBoard(
   }
 
   if (format) {
+    await expandFormat(page.locator(".modal"));
     await page.locator(".modal").getByLabel("Format", { exact: true }).fill(format);
   }
 

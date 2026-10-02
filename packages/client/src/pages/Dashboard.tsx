@@ -49,6 +49,7 @@ const Dashboard: Component = () => {
     (lists() ?? []).filter((l) => l.board_id === boardId);
 
   const handleCreateList = async (data: ListFormData) => {
+    if (data.board_format) await updateBoard(data.board_id, { format: data.board_format });
     const list = await createList(data.name, data.board_id);
     if (data.format != null) await db.lists.update(list.id, { format: data.format });
     setShowCreateList(false);
