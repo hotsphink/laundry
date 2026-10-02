@@ -37,6 +37,7 @@ import BoardMissing from "../components/BoardMissing.js";
 import { lastListId, rememberBoard, rememberList } from "../store/lastViewed.js";
 import { finishedDisplay } from "../store/finishedDisplay.js";
 import { dummyDisplayIndex, sectionedDropAfterId, sectionedOrder, type FinishedDisplay } from "../db/sections.js";
+import { registerDebugView } from "../debugConsole.js";
 
 // Stable sentinel object for the inline-add dummy row. Using a single reference
 // lets SolidJS <For> reuse the DOM node when the dummy changes position.
@@ -526,6 +527,8 @@ const ListView: Component = () => {
       listAttributes: list.attributes,
     });
   };
+
+  onCleanup(registerDebugView(() => ({ board: board(), boardFormat: boardFormatText(), lists: allLists() })));
 
   const ItemText: Component<{ item: Item; list: List }> = (p) => {
     const rendered = createMemo(() => formatItem(p.item, p.list));

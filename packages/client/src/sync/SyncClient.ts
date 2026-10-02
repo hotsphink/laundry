@@ -14,6 +14,7 @@ import { exportPublicJwk, getOrCreateClientIdentity, signAuthPayload } from "./c
 import { assetToSync, assetFromSync, registerAsset } from "./assetStore.js";
 import { GRANT_FAILURE_REASONS } from "./grantReasons.js";
 import { addDeviceNotices } from "../store/deviceNotices.js";
+import { clockOffsets, logSync } from "./syncLog.js";
 import {
   setEndpointStatus,
   removeEndpointStatus,
@@ -317,6 +318,7 @@ class EndpointConnection {
     const userKeys: ServerUserKey[] = Array.isArray(msg.user_keys) ? msg.user_keys : [];
     if (Array.isArray(msg.integrations)) setServerIntegrations(serverId, msg.integrations);
     if (Array.isArray(msg.extra_devices)) addDeviceNotices(msg.extra_devices);
+    if (typeof msg.server_time === "number") clockOffsets.set(serverId, msg.server_time - Date.now());
 
     // Batch the phase change with onReady, which registers this connection's
     // sender. UI effects run synchronously on the status change, and one that
@@ -641,6 +643,7 @@ class SyncClient {
     for (const t of connectionsForPush(boardBinding, connections)) {
       this.primaries.get(t.epId)!.send({ type: "push_entity", entity_type: entityType, sync_key: t.key, data });
     }
+    logSync("out", entityType, d);
   }
 
   pushDelete(entityType: EntityType, entityId: string, deletedAt?: number): void {
@@ -1179,6 +1182,7 @@ class SyncClient {
       if (!reachesThisConnection(boardBinding, key)) continue;
       if (board.updated_at > (sinceByKey.get(key) ?? 0)) {
         send({ type: "push_entity", entity_type: "board", sync_key: key, data: board });
+        logSync("out", "board", board);
       }
     }
 
@@ -1189,6 +1193,7 @@ class SyncClient {
       if (!reachesThisConnection(boardBinding, key)) continue;
       if (list.updated_at > (sinceByKey.get(key) ?? 0)) {
         send({ type: "push_entity", entity_type: "list", sync_key: key, data: list });
+        logSync("out", "list", list);
       }
     }
 
@@ -1299,7 +1304,11 @@ class SyncClient {
     if (!incoming.length) return;
     const table = entityType === "board" ? db.boards : entityType === "list" ? db.lists : db.items;
     const existing = await (table as any).bulkGet(incoming.map((e: any) => e.id));
-    const toStore = incoming.map((e: any, i: number) => applyIncomingEntity(entityType, e, existing[i])).filter(Boolean);
+    const toStore = incoming.map((e: any, i: number) => {
+      const merged = applyIncomingEntity(entityType, e, existing[i]);
+      logSync("in", entityType, e, merged ? "applied" : "ignored-older", existing[i]);
+      return merged;
+    }).filter(Boolean);
     if (toStore.length) await (table as any).bulkPut(toStore);
 
     // Update routing caches from incoming data
@@ -1382,6 +1391,7 @@ class SyncClient {
     const table = entityType === "board" ? db.boards : entityType === "list" ? db.lists : db.items;
     const existing = await (table as any).get(incoming.id);
     const toStore = applyIncomingEntity(entityType, incoming, existing);
+    logSync("in", entityType, incoming, toStore ? "applied" : "ignored-older", existing);
     if (toStore) {
       await (table as any).put(toStore);
       if (entityType === "list") this.listBoardMap.set(incoming.id, incoming.board_id);
@@ -1399,6 +1409,7 @@ class SyncClient {
     const table = tombstoneTable(entityType);
     if (table) {
       const existing = await (table as any).get(entityId);
+      logSync("in", entityType, { id: entityId, updated_at: deletedAt }, shouldDeleteOnTombstone(existing, deletedAt) ? "deleted" : "kept", existing);
       if (shouldDeleteOnTombstone(existing, deletedAt)) {
         await (table as any).delete(entityId);
         // An item's results go with it. The server sends no tombstones for them.

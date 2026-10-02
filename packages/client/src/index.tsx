@@ -2,6 +2,7 @@ import { render } from "solid-js/web";
 import App from "./App.js";
 import "./styles.css";
 import "./store/theme.js";
+import { installDebugConsole } from "./debugConsole.js";
 
 if ("serviceWorker" in navigator) {
   if (import.meta.env.PROD) {
@@ -17,3 +18,4 @@ const root = document.getElementById("root");
 if (!root) throw new Error("Root element not found");
 
 render(() => <App />, root);
+installDebugConsole();
