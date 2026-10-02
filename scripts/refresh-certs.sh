@@ -14,6 +14,12 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CERT_DIR="$ROOT/certs"
+
+if [[ $# -gt 0 ]]; then
+  CERT_DIR="$1"
+  shift
+fi
+
 CRT="$CERT_DIR/tailscale.crt"
 KEY="$CERT_DIR/tailscale.key"
 RENEW_WINDOW_DAYS=14

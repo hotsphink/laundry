@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 import { DEFAULT_MODEL_URL, type ModelConfig } from "./gemini.js";
 
@@ -32,12 +33,19 @@ export interface ConsoleConfig {
   external_urls?: string[];
 }
 
+/** TLS key and cert files, as absolute paths. */
+export interface CertsConfig {
+  key: string;
+  cert: string;
+}
+
 export interface Config {
   /** Vision models to try, tried one tier at a time. A tier's models run in
    * parallel and the first usable answer wins. Empty means screenshot import
    * is off. */
   tiers: ModelConfig[][];
   tls?: boolean;
+  certs: CertsConfig;
   /** Address to listen on. Missing = every interface. */
   host?: string;
   port?: number;
@@ -234,6 +242,16 @@ function parseConsole(value: unknown): ConsoleConfig | undefined {
   };
 }
 
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../../..");
+
+// Resolve relative paths against the repo root, where `certs/` lives.
+function parseCerts(value: unknown): CertsConfig {
+  const raw = asObject(value) ?? {};
+  const key = asString(raw.key) ?? "certs/tailscale.key";
+  const cert = asString(raw.cert) ?? "certs/tailscale.crt";
+  return { key: resolve(REPO_ROOT, key), cert: resolve(REPO_ROOT, cert) };
+}
+
 function parseServices(value: unknown): ModelConfig[][] {
   const services = asObject(value);
   if (!services) return [];
@@ -262,7 +280,7 @@ export function loadConfig(): Config {
       console.error(`[config] failed to read ${path}, using defaults:`, err instanceof Error ? err.message : err);
     }
   }
-  const config: Config = { variant, tiers: [] };
+  const config: Config = { variant, tiers: [], certs: parseCerts(raw.certs) };
   config.tls = asBool(raw.tls);
   config.host = asString(raw.host);
   config.port = asNumber(raw.port);

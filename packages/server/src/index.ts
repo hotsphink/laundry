@@ -9,7 +9,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { getProductionDb } from "./db.js";
 import type { EntityType, createDbApi, UserRow, Cap, GrantKind } from "./db.js";
 import { config } from "./config.js";
-import type { ConsoleConfig, IntegrationServerConfig } from "./config.js";
+import type { CertsConfig, ConsoleConfig, IntegrationServerConfig } from "./config.js";
 import { extractFromImage } from "./gemini.js";
 import { MIN_PROTOCOL_VERSION, MAX_PROTOCOL_VERSION } from "./protocol.js";
 import { jwkThumbprint, verifyAuthSignature } from "./authCrypto.js";
@@ -55,7 +55,6 @@ type DbApi = ReturnType<typeof createDbApi>;
 
 const PORT = config.port ?? 10_000;
 const HOST = config.host ?? "0.0.0.0";
-const CERT_DIR = join(dirname(fileURLToPath(import.meta.url)), "../../../certs");
 const CONSOLE_DIST = join(dirname(fileURLToPath(import.meta.url)), "../console/dist");
 
 // certs/tailscale.crt is a static snapshot with a 90-day lifetime and nothing
@@ -79,7 +78,7 @@ export function warnIfCertExpiring(certPath: string): void {
   const days = Math.floor(Math.abs(msLeft) / 86_400_000);
   const state = msLeft < 0 ? `expired ${days}d ago` : `expires in ${days}d`;
   console.warn(`[cert] ${ts()} ${certPath} ${state} (${validTo.toISOString()}).`);
-  console.warn(`[cert] ${ts()}   Fix: pnpm certs:refresh, then restart this server.`);
+  console.warn(`[cert] ${ts()}   Fix: pnpm certs:refresh [dir], then restart this server.`);
 }
 
 /** What the sync server hands its HTTP request handler besides the request. */
@@ -168,7 +167,8 @@ const keyTag = (keys: string[]) => `[${keys.map((k) => k.slice(0, 6)).join("+")}
 
 export interface SyncServerOptions {
   tls?: boolean;
-  certDir?: string;
+  /** TLS key and cert files. Defaults to the process config's `certs`. */
+  certs?: CertsConfig;
   integrations?: Record<string, IntegrationServerConfig>;
   /** Integration modules to offer. Defaults to the built-in set. Tests override it. */
   integrationModules?: Map<string, IntegrationModule>;
@@ -242,12 +242,13 @@ export function createSyncServer(dbApi: DbApi, opts: SyncServerOptions = {}): Sy
     requestHandler(req, res, { monitor });
   };
 
-  const certPath = join(opts.certDir ?? CERT_DIR, "tailscale.crt");
+  const certs = opts.certs ?? config.certs;
+  const certPath = certs.cert;
   const httpServer = opts.tls === false
     ? createHttpServer(dispatch)
     : createHttpsServer(
         {
-          key: readFileSync(join(opts.certDir ?? CERT_DIR, "tailscale.key")),
+          key: readFileSync(certs.key),
           cert: readFileSync(certPath),
         },
         dispatch,
@@ -1044,7 +1045,6 @@ export function createSyncServer(dbApi: DbApi, opts: SyncServerOptions = {}): Sy
 if (import.meta.url === `file://${process.argv[1]}`) {
   const syncServer = createSyncServer(getProductionDb(), {
     tls: config.tls,
-    certDir: CERT_DIR,
     integrations: config.integrations,
     requestHandler: handler,
   });

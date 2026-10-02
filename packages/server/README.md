@@ -42,7 +42,8 @@ optional, and a missing file just means defaults.
 | --- | --- |
 | `host` | Address to listen on. Defaults to `0.0.0.0`, every interface. Set `127.0.0.1` when a reverse proxy on the same machine is the only way in. |
 | `port` | Defaults to 10000. |
-| `tls` | HTTPS is the default. It reads `certs/tailscale.key` and `certs/tailscale.crt` from the repo root, so a fresh checkout with no certs needs `tls: false`. The cert is checked at startup and every 12 hours; run `pnpm certs:refresh` and restart when it warns. |
+| `tls` | HTTPS is the default. It reads the files named by `certs`, so a fresh checkout with no certs needs `tls: false`. The cert is checked at startup and every 12 hours; run `pnpm certs:refresh [dir]` and restart when it warns. |
+| `certs` | `certs.key` and `certs.cert` name the TLS key and cert files. Relative paths resolve against the repo root. Defaults to `certs/tailscale.key` and `certs/tailscale.crt`. |
 | `db_path` | Directory holding `listr.db`. Defaults to `data/` under the working directory. |
 | `services.model_families` | What a group of models shares, one entry per family. `name` identifies it, `models` lists the models it covers, and `api_key` plus a `url` template are the usual shared contents, though any key may go here. |
 | `services.vision.tiers` | Which models answer a screenshot import, as a list of tiers. Tiers are tried in order, and the models within one tier all run at once. With none configured, `/api/import` answers 503 and everything else works fine. |
