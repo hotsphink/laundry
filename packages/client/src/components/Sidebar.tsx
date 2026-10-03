@@ -15,6 +15,7 @@ import ShareIcon from "./ShareIcon.js";
 import { syncStatus } from "../sync/syncStore.js";
 import { generateShareKey } from "../sync/syncKeys.js";
 import { collapsedGroups, toggleGroupCollapsed } from "../store/sidebarGroups.js";
+import { sidebarPinned, setSidebarPinned } from "../store/sidebarStore.js";
 import { requestExport } from "../store/exportRequest.js";
 import { menuPosition } from "../utils/menuPosition.js";
 
@@ -232,13 +233,39 @@ const Sidebar: Component<Props> = (props) => {
 
   return (
     <nav class="sidebar" id="sidebar" classList={{ open: props.open ?? false }} aria-label="Boards">
-      <button
-        type="button"
-        class="btn-bare sidebar-header"
-        onClick={() => { props.onClose?.(); navigate("/"); }}
-      >
-        Listr
-      </button>
+      <div class="sidebar-header">
+        <button
+          type="button"
+          class="btn-bare sidebar-home"
+          onClick={() => { props.onClose?.(); navigate("/"); }}
+        >
+          Listr
+        </button>
+        {/* Wide screens only: keep the sidebar open instead of collapsing it after each pick. */}
+        <button
+          type="button"
+          class="btn-icon btn-icon-sm btn-icon-quiet sidebar-pin-btn"
+          aria-pressed={sidebarPinned()}
+          aria-label="Keep sidebar open"
+          title={sidebarPinned() ? "Collapse the sidebar after picking a board" : "Keep the sidebar open"}
+          onClick={() => setSidebarPinned(!sidebarPinned())}
+        >
+          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true">
+            <path d="M6 2h4M7 2v4L4.5 9h7L9 6V2M8 9v5" fill={sidebarPinned() ? "currentColor" : "none"} />
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="btn-icon btn-icon-sm btn-icon-quiet sidebar-close-btn"
+          aria-label="Close menu"
+          title="Close menu"
+          onClick={() => props.onClose?.()}
+        >
+          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M8 4L4 8l4 4M12 4L8 8l4 4" />
+          </svg>
+        </button>
+      </div>
       <div class="sidebar-content">
         <div class="sidebar-group">
           {renderGroupHeader("own", "My Boards", defaultSyncKey())}

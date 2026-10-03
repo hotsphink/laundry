@@ -8,6 +8,12 @@ export default defineConfig({
     baseURL: E2E_APP_URL,
     browserName: "firefox",
     ignoreHTTPSErrors: true,
+    // Specs click sidebar items directly, so keep it open as a column.
+    // sidebar.spec.ts covers the collapsing sidebar.
+    storageState: {
+      cookies: [],
+      origins: [{ origin: E2E_APP_URL, localStorage: [{ name: "sidebar-pinned", value: "true" }] }],
+    },
   },
   webServer: {
     // Always a fresh server on the e2e port. --strictPort fails fast if the

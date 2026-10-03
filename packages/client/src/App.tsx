@@ -14,7 +14,7 @@ import { healLegacyItems } from "./db/operations.js";
 import { syncClient } from "./sync/SyncClient.js";
 import { initAssetStore } from "./sync/assetStore.js";
 import { selectionMode } from "./store/selectionMode.js";
-import { sidebarOpen, setSidebarOpen } from "./store/sidebarStore.js";
+import { sidebarOpen, setSidebarOpen, sidebarPinned } from "./store/sidebarStore.js";
 import { isDragging } from "./hooks/useSortable.js";
 import { lastBoardId } from "./store/lastViewed.js";
 
@@ -77,7 +77,7 @@ const Layout: Component<{ children?: any }> = (props) => {
   });
 
   return (
-    <div class="app">
+    <div class="app" classList={{ "sidebar-pinned": sidebarPinned() }}>
       {/* A button, not an anchor: the app routes on the URL hash, so a
           fragment link would navigate instead of moving focus. */}
       <button
@@ -97,7 +97,7 @@ const Layout: Component<{ children?: any }> = (props) => {
       <main class="app-body" id="main-content" tabindex={-1}>
         <Show when={!selectionMode() && location.pathname !== "/admin"}>
           <button
-            class="btn-icon btn-icon-lg mobile-menu-btn"
+            class="btn-icon btn-icon-lg menu-btn"
             onClick={() => setSidebarOpen(true)}
             aria-label="Open menu"
             aria-expanded={sidebarOpen()}

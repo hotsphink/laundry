@@ -41,7 +41,7 @@ export async function clearDatabase(page: Page) {
     });
   });
   await page.reload();
-  await page.waitForSelector(".sidebar");
+  await page.waitForSelector(".sidebar", { state: "attached" });
 }
 
 /**
@@ -134,7 +134,7 @@ export async function addSyncEndpoint(
     });
   }, endpoint);
   await page.reload();
-  await page.waitForSelector(".sidebar");
+  await page.waitForSelector(".sidebar", { state: "attached" });
 }
 
 export async function fillSchemaField(page: Page, input: Locator, value: string) {

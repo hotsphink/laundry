@@ -59,11 +59,48 @@
 }
 
 .sidebar-header {
-  padding: var(--space-6);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-4) var(--space-4) var(--space-6);
   border-bottom: 1px solid var(--border);
+}
+
+.sidebar-home {
+  flex: 1;
+  text-align: left;
   font-size: var(--text-xl);
   font-weight: 600;
+  padding: var(--space-2) 0;
   cursor: pointer;
+}
+
+.sidebar-pin-btn[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+/* Pinned open, there is nothing to close. */
+.app.sidebar-pinned .sidebar-close-btn {
+  display: none;
+}
+
+/* Floats over the header rather than taking a slot in it, so the title can
+ * use the full width. The title reserves room for it with padding. */
+.menu-btn {
+  position: fixed;
+  top: var(--space-3); /* roughly vertical middle of title */
+  left: var(--space-5);
+  z-index: var(--z-menu-btn);
+  color: var(--text-muted);
+}
+
+.menu-btn:hover {
+  background: none;
+  color: var(--text);
+}
+
+.page-header h1 {
+  padding-left: 50px;
 }
 
 .sidebar-content {
@@ -496,9 +533,34 @@
   /* Their jobs are done by the header itself and the always-visible filter. */
   .config-btn,
   .filter-toggle-btn,
-  .mobile-filter-bar,
-  .mobile-menu-btn {
+  .mobile-filter-bar {
     display: none;
+  }
+
+  /* Unpinned, the sidebar collapses to nothing and opens as a column that
+   * pushes the board aside, so the board stays live beside it. */
+  .app:not(.sidebar-pinned) .sidebar {
+    transition: margin-left 0.2s ease, visibility 0.2s ease;
+  }
+
+  .app:not(.sidebar-pinned) .sidebar:not(.open) {
+    margin-left: -240px;
+    visibility: hidden;
+  }
+
+  .menu-btn {
+    top: var(--space-5);
+  }
+
+  /* The sidebar's own controls take over while it shows. */
+  .app.sidebar-pinned .menu-btn,
+  .sidebar.open ~ .app-body .menu-btn {
+    display: none;
+  }
+
+  .app.sidebar-pinned .page-header h1,
+  .sidebar.open ~ .app-body .page-header h1 {
+    padding-left: 0;
   }
 }
 
@@ -532,19 +594,13 @@
     padding: var(--space-2) var(--space-4);
   }
 
-  /* Floats over the header rather than taking a slot in it, so the title can
-   * use the full width. The title reserves room for it with padding. */
-  .mobile-menu-btn {
-    position: fixed;
-    top: var(--space-3); /* roughly vertical middle of title */
-    left: var(--space-5);
-    z-index: var(--z-menu-btn);
-    color: var(--text-muted);
+  /* The sidebar always overlays here, so pinning means nothing. */
+  .sidebar-pin-btn {
+    display: none;
   }
 
-  .mobile-menu-btn:hover {
-    background: none;
-    color: var(--text);
+  .app.sidebar-pinned .sidebar-close-btn {
+    display: inline-flex;
   }
 
   .page-header {
@@ -557,7 +613,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    padding-left: 50px;
     font-size: var(--text-lg);
   }
 
