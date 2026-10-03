@@ -914,52 +914,6 @@
   margin-bottom: var(--space-4);
 }
 
-/* ══ Dashboard ════════════════════════════════════════════════════════════
- * Not currently reachable by any route (see App.tsx); kept in step with the
- * rest so it works if it is wired back up.
- */
-.dashboard {
-  padding: var(--space-7);
-}
-
-.dashboard h2 {
-  font-size: var(--text-lg);
-  color: var(--text-muted);
-  margin-bottom: var(--space-5);
-}
-
-.dashboard-board-name {
-  padding-left: var(--space-4);
-}
-
-.dashboard-board {
-  margin-bottom: var(--space-7);
-}
-
-.dashboard-board-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  margin-bottom: var(--space-5);
-}
-
-.list-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: var(--space-5);
-  margin-bottom: var(--space-8);
-}
-
-.card.list {
-  text-decoration: none;
-  color: var(--text);
-}
-
-.card-name {
-  font-weight: 500;
-  margin-bottom: var(--space-2);
-}
-
 /* ══ Dialogs as full-screen pages ═════════════════════════════════════════
  * Below this width a dialog stops floating: it fills the screen and grows a
  * back arrow, because there is no room for anything around it.
