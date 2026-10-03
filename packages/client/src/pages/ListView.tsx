@@ -704,10 +704,14 @@ const ListView: Component = () => {
   };
 
   // Desktop: double-click only on empty header space, not on the name.
+  const isEmptyHeaderSpace = (e: MouseEvent) =>
+    (e.target as Element).matches(".page-header, .page-title, .header-actions");
   const handleHeaderDblClick = (e: MouseEvent) => {
-    if (isTouch) return;
-    const t = e.target as Element;
-    if (t.matches(".page-header, .page-title, .header-actions")) setEditingBoard(board());
+    if (!isTouch && isEmptyHeaderSpace(e)) setEditingBoard(board());
+  };
+  // Keep a multi-click on empty space from selecting nearby text.
+  const handleHeaderMouseDown = (e: MouseEvent) => {
+    if (e.detail > 1 && isEmptyHeaderSpace(e)) e.preventDefault();
   };
 
   const boardCtxMenuItems = createMemo((): MenuItem[] => {
@@ -1016,7 +1020,7 @@ const ListView: Component = () => {
           <>
             <Show when={selectionMode()} fallback={
               <>
-                <div class="page-header" onClick={handleHeaderClick} onDblClick={handleHeaderDblClick}>
+                <div class="page-header" onClick={handleHeaderClick} onDblClick={handleHeaderDblClick} onMouseDown={handleHeaderMouseDown}>
                   <div class="page-title" onContextMenu={(e) => { e.preventDefault(); setBoardCtxMenu(menuPosition(e)); }}>
                     <h1>{headerTitle()}</h1>
                     <Show when={board()?.sync_key}>
