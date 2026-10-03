@@ -221,6 +221,27 @@ test.describe("custom attributes", () => {
     await expect(modal.getByLabel("Format", { exact: true })).toHaveValue('[title] [tag]\n\ntag="x"');
   });
 
+  test("the board editor lists attributes one line each until one is opened", async ({ page }) => {
+    await createBoard(page, "Movies", [
+      { key: "rating", label: "Rating", type: "number" },
+      { key: "genre", label: "Genre", type: "enum", options: "drama, comedy" },
+    ]);
+    await page.locator(".sidebar-board", { hasText: "Movies" }).click({ button: "right" });
+    await page.locator(".context-menu-item", { hasText: "Edit" }).click();
+    const modal = page.locator(".modal");
+    const entries = modal.locator(".schema-entry");
+    await expect(entries).toHaveCount(2);
+    await expect(entries.locator("input")).toHaveCount(0);
+    await expect(entries.nth(1)).toContainText("[genre] · Select · drama, comedy");
+
+    await modal.getByRole("button", { name: "Edit attribute Genre" }).click();
+    await expect(entries.nth(1).locator("input").first()).toHaveValue("genre");
+    await expect(entries.nth(0).locator("input")).toHaveCount(0);
+
+    await modal.getByRole("button", { name: "Done editing attribute Genre" }).click();
+    await expect(entries.locator("input")).toHaveCount(0);
+  });
+
   test("the list editor edits the board's format without overriding it", async ({ page }) => {
     await createBoard(page, "Shared");
     await createListInBoard(page, "One", "Shared");

@@ -1,4 +1,4 @@
-import { type Component, For, Index, Show, Switch, Match } from "solid-js";
+import { type Component, For, Index, Show, Switch, Match, createSignal } from "solid-js";
 import type { AttributeDefinition, AttributeType } from "@listr/shared";
 import { parseDecimal } from "./AttributeEditor.js";
 
@@ -21,9 +21,36 @@ interface Props {
   onChange: (schema: AttributeDefinition[]) => void;
 }
 
+const TODO_DEFAULT_LABELS: Record<string, string> = { done: "Done", cancelled: "Cancel", skipped: "Skip" };
+
+/** One line describing an attribute's key, type, options and default. */
+function summarize(attr: AttributeDefinition): string {
+  const parts = [`[${attr.key}]`, ATTRIBUTE_TYPES.find((t) => t.value === attr.type)?.label ?? attr.type];
+  if ((attr.type === "enum" || attr.type === "tags") && attr.options?.length) parts.push(attr.options.join(", "));
+  const d = attr.default_value;
+  if (d != null && d !== "" && !(attr.type === "boolean" && d === false)) {
+    const shown = attr.type === "boolean" ? "Yes" : attr.type === "todo" ? TODO_DEFAULT_LABELS[String(d)] ?? String(d) : String(d);
+    parts.push(`default ${shown}`);
+  }
+  return parts.join(" \u00b7 ");
+}
+
+/**
+ * The board's attributes as a compact list, one line each. Editing expands a
+ * row into its fields; a new attribute starts expanded.
+ */
 const SchemaEditor: Component<Props> = (props) => {
+  const [open, setOpen] = createSignal<Set<number>>(new Set());
+  const isOpen = (i: number) => open().has(i);
+  const toggle = (i: number) => setOpen((prev) => {
+    const next = new Set(prev);
+    next.has(i) ? next.delete(i) : next.add(i);
+    return next;
+  });
+
   const addAttribute = () => {
     const pos = props.schema.length;
+    setOpen((prev) => new Set(prev).add(pos));
     props.onChange([
       ...props.schema,
       {
@@ -44,16 +71,59 @@ const SchemaEditor: Component<Props> = (props) => {
   };
 
   const removeAt = (index: number) => {
+    // Keep the open rows open as the ones after the removed row shift up.
+    setOpen((prev) => new Set([...prev].filter((i) => i !== index).map((i) => (i > index ? i - 1 : i))));
     props.onChange(props.schema.filter((_, i) => i !== index));
   };
 
+  const removeButton = (attr: () => AttributeDefinition, i: number) => (
+    <button
+      type="button"
+      class="btn-icon"
+      onClick={() => removeAt(i)}
+      title="Remove attribute"
+      aria-label={`Remove attribute ${attr().label || attr().key || i + 1}`}
+    >
+      <span aria-hidden="true">×</span>
+    </button>
+  );
+
   return (
     <div>
+      <div class="schema-list">
       <Index each={props.schema}>
         {(attr, i) => (
-          <div class="schema-entry">
-            {/* Row 1 on mobile: key + label + delete. display:contents on desktop. */}
+          <Show
+            when={isOpen(i)}
+            fallback={
+              <div class="schema-entry schema-entry-collapsed">
+                <button
+                  type="button"
+                  class="btn-bare schema-summary"
+                  aria-expanded="false"
+                  aria-label={`Edit attribute ${attr().label || attr().key}`}
+                  onClick={() => toggle(i)}
+                >
+                  <span class="schema-summary-name">{attr().label || attr().key}</span>
+                  <span class="schema-summary-detail">{summarize(attr())}</span>
+                </button>
+                {removeButton(attr, i)}
+              </div>
+            }
+          >
+          <div class="schema-entry schema-entry-open">
+            {/* Row 1 on mobile: collapse + key + label + delete. display:contents on desktop. */}
             <div class="schema-entry-main">
+              <button
+                type="button"
+                class="btn-icon btn-icon-sm btn-icon-quiet schema-collapse"
+                aria-expanded="true"
+                aria-label={`Done editing attribute ${attr().label || attr().key}`}
+                title="Done editing"
+                onClick={() => toggle(i)}
+              >
+                <span aria-hidden="true">{"\u25be"}</span>
+              </button>
               <input
                 class="schema-key"
                 placeholder="Key"
@@ -69,15 +139,7 @@ const SchemaEditor: Component<Props> = (props) => {
                 value={attr().label}
                 onBlur={(e) => updateAt(i, { label: e.currentTarget.value })}
               />
-              <button
-                type="button"
-                class="btn-icon"
-                onClick={() => removeAt(i)}
-                title="Remove attribute"
-                aria-label={`Remove attribute ${attr().label || attr().key || i + 1}`}
-              >
-                <span aria-hidden="true">×</span>
-              </button>
+              {removeButton(attr, i)}
             </div>
             {/* Row 2 on mobile: type + options + default. display:contents on desktop. */}
             <div class="schema-entry-detail">
@@ -119,8 +181,10 @@ const SchemaEditor: Component<Props> = (props) => {
               </div>
             </div>
           </div>
+          </Show>
         )}
       </Index>
+      </div>
       <button type="button" class="btn-ghost" onClick={addAttribute}>
         + Add attribute
       </button>

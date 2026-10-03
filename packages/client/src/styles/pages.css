@@ -127,6 +127,13 @@
 
 /* ══ Schema editor ════════════════════════════════════════════════════════*/
 
+.schema-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
 /* One attribute definition. On a wide screen the two row wrappers dissolve and
  * every field sits on one line; the mobile block at the end of this file puts
  * them back. */
@@ -138,7 +145,37 @@
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  margin-bottom: var(--space-3);
+}
+
+/* A closed attribute: one line naming it, the whole line opens it. */
+.schema-entry-collapsed {
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-4);
+}
+
+.schema-summary {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  text-align: left;
+  padding: var(--space-2) 0;
+  cursor: pointer;
+}
+
+.schema-summary-name {
+  font-size: var(--text-md);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.schema-summary-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
 }
 
 .schema-entry-main,
@@ -149,6 +186,10 @@
 /* Send the delete button to the far end, past the fields of the second row. */
 .schema-entry-main .btn-icon {
   order: 10;
+}
+
+.schema-entry-main .schema-collapse {
+  order: 0;
 }
 
 .schema-entry input,
@@ -982,7 +1023,7 @@
   }
 
   /* Two rows: key and label and delete, then type and options and default. */
-  .schema-entry {
+  .schema-entry-open {
     flex-direction: column;
     align-items: stretch;
     gap: var(--space-3);
