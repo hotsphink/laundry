@@ -193,6 +193,7 @@ const ListView: Component = () => {
   let lastTapTime = 0;
   let lastTapListId: string | null = null;  // for double-tap list header to edit
   let lastTapListTime = 0;
+  let lastTapBoardTime = 0;  // for double-tap board header to edit
   let lastContextMenuTime = 0;              // suppresses click fired after a long-press contextmenu
   let touchSelectTimer: ReturnType<typeof setTimeout> | null = null; // pending delayed selection
   let todoLongPressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -690,6 +691,25 @@ const ListView: Component = () => {
     setEditingBoard(undefined);
   };
 
+  // Touch: double-tap anywhere in the header outside its controls.
+  const handleHeaderClick = (e: MouseEvent) => {
+    if (!isTouch || (e.target as Element).closest("button, input, select, a")) return;
+    const now = Date.now();
+    if (now - lastTapBoardTime < 350) {
+      lastTapBoardTime = 0;
+      setEditingBoard(board());
+      return;
+    }
+    lastTapBoardTime = now;
+  };
+
+  // Desktop: double-click only on empty header space, not on the name.
+  const handleHeaderDblClick = (e: MouseEvent) => {
+    if (isTouch) return;
+    const t = e.target as Element;
+    if (t.matches(".page-header, .page-title, .header-actions")) setEditingBoard(board());
+  };
+
   const boardCtxMenuItems = createMemo((): MenuItem[] => {
     const b = board();
     if (!b) return [];
@@ -996,7 +1016,7 @@ const ListView: Component = () => {
           <>
             <Show when={selectionMode()} fallback={
               <>
-                <div class="page-header">
+                <div class="page-header" onClick={handleHeaderClick} onDblClick={handleHeaderDblClick}>
                   <div class="page-title" onContextMenu={(e) => { e.preventDefault(); setBoardCtxMenu(menuPosition(e)); }}>
                     <h1>{headerTitle()}</h1>
                     <Show when={board()?.sync_key}>
