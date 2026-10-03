@@ -7,6 +7,7 @@ import { db } from "../db/database.js";
 import { itemsWithOverlay } from "../db/overlay.js";
 import type { FinishedDisplay } from "../db/sections.js";
 import { finishedDisplay, setFinishedDisplay } from "../store/finishedDisplay.js";
+import { listAttributes } from "../store/localListAttributes.js";
 
 export interface ListFormData {
   name: string;
@@ -170,7 +171,7 @@ const ListFormModal: Component<Props> = (props) => {
                   schema={board().schema}
                   base={boardFormatText()}
                   sampleItems={sampleItems()}
-                  listAttributes={props.initial?.attributes}
+                  listAttributes={props.initial && listAttributes(props.initial)}
                   placeholder={boardFormatText().split("\n")[0]}
                 />
                 <Show when={formatError()}>
@@ -197,7 +198,7 @@ const ListFormModal: Component<Props> = (props) => {
                 onInput={(v) => { setBoardEdit({ boardId: board().id, text: v }); setBoardFormatError(null); }}
                 schema={board().schema}
                 sampleItems={sampleItems()}
-                listAttributes={props.initial?.attributes}
+                listAttributes={props.initial && listAttributes(props.initial)}
                 placeholder="[title]"
               />
               <Show when={boardFormatError()}>

@@ -18,8 +18,10 @@ test("the list header toggles brief and verbose display", async ({ page }) => {
   await toggle.click();
   await expect(text).toHaveText("Inception (sci-fi)");
   await expect(toggle).toHaveAttribute("aria-pressed", "true");
-  const lists = await readStore<{ attributes?: Record<string, unknown> }>(page, "lists");
-  expect(lists[0].attributes).toEqual({ display: "verbose" });
+  const lists = await readStore<{ id: string; attributes?: Record<string, unknown> }>(page, "lists");
+  expect(lists[0].attributes ?? {}).toEqual({});
+  const local = await page.evaluate(() => JSON.parse(localStorage.getItem("local-list-attributes") ?? "null"));
+  expect(local).toEqual({ [lists[0].id]: { display: "verbose" } });
 
   await page.reload();
   await expect(text).toHaveText("Inception (sci-fi)");

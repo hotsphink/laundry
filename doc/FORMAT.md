@@ -360,10 +360,12 @@ set in others. The definition of unset is: `undefined`, `null`, `""`, `[]`, or
 
 Lists have their own attributes, with a fixed schema that users cannot change
 (yet). A format refers to them with a `list.` prefix. They are always set,
-since an unset list attribute uses its default.
+since an unset list attribute uses its default. Some list attributes are
+stored per device instead of syncing with the list, so each device can set its
+own value.
 
-* `list.display` - an enum, `brief` (the default) or `verbose`. The `*` button
-  in a list's header toggles it. Use it to switch every item in a list between
+* `list.display` - an enum, `brief` (the default) or `verbose`. Per device.
+  The `*` button in a list's header toggles it. Use it to switch every item in a list between
   a short and a long form:
 
       [title][more]

@@ -502,13 +502,6 @@ export async function updateList(
   if (updated) syncClient.pushEntity("list", updated);
 }
 
-/** Set one list attribute, keeping the others. */
-export async function updateListAttribute(id: string, key: string, value: unknown): Promise<void> {
-  const list = await db.lists.get(id);
-  if (!list) return;
-  await updateList(id, { attributes: { ...list.attributes, [key]: value } });
-}
-
 export async function deleteList(id: string): Promise<void> {
   const items = await db.items.where("list_id").equals(id).toArray();
 

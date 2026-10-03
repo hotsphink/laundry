@@ -17,6 +17,9 @@ export const LIST_SCHEMA: AttributeDefinition[] = [
   },
 ];
 
+/** Keys stored per device instead of on the synced List. */
+export const LOCAL_LIST_ATTRIBUTES: readonly string[] = ["display"];
+
 /** Prefix that names a list attribute in a format, eg `[list.display]`. */
 export const LIST_ATTR_PREFIX = "list.";
 
@@ -27,6 +30,6 @@ export function listAttribute(attributes: Record<string, unknown> | undefined, k
   return LIST_SCHEMA.find((d) => d.key === key)?.default_value;
 }
 
-export function listDisplay(list: Pick<List, "attributes">): ListDisplay {
-  return listAttribute(list.attributes, "display") === "verbose" ? "verbose" : "brief";
+export function listDisplay(attributes: Record<string, unknown> | undefined): ListDisplay {
+  return listAttribute(attributes, "display") === "verbose" ? "verbose" : "brief";
 }

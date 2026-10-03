@@ -158,7 +158,7 @@ const FormatEditor: Component<Props> = (props) => {
   };
 
   const [display, setDisplay] = createSignal<ListDisplay>("brief");
-  createEffect(() => setDisplay(listDisplay({ attributes: props.listAttributes })));
+  createEffect(() => setDisplay(listDisplay(props.listAttributes)));
 
   const preview = createMemo(() => {
     const item = sampleItem();
