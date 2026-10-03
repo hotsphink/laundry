@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { clearDatabase, createBoard, createListInBoard } from "./helpers.js";
+import { clearDatabase, createBoard, createListInBoard, setupSyncConfig, mockImportRoute } from "./helpers.js";
 
 // Minimal 1×1 white PNG — content doesn't matter (server is mocked); only mimeType matters for the client check
 const TINY_PNG = Buffer.from(
@@ -8,46 +8,6 @@ const TINY_PNG = Buffer.from(
   "1e221bc330000000049454e44ae426082",
   "hex",
 );
-
-const FAKE_HOST = "fake.test";
-const FAKE_PORT = 19999;
-
-// Import reads the AI endpoint from the first enabled sync_endpoint
-// (getApiUrl in ImportModal builds `${proto}://${host}:${port}`), so the mocked
-// /api/import route below is served from https://fake.test:19999.
-async function setupSyncConfig(page: Page) {
-  await page.evaluate(({ host, port }) => {
-    return new Promise<void>((resolve, reject) => {
-      const req = indexedDB.open("listr2");
-      req.onsuccess = () => {
-        const db = req.result;
-        const tx = db.transaction("sync_endpoints", "readwrite");
-        tx.objectStore("sync_endpoints").put({
-          id: "test-endpoint",
-          host,
-          port,
-          enabled: true,
-          secure: true,
-          last_server_id: null,
-          position: 0,
-        });
-        tx.oncomplete = () => { db.close(); resolve(); };
-        tx.onerror = () => reject(tx.error);
-      };
-      req.onerror = () => reject(req.error);
-    });
-  }, { host: FAKE_HOST, port: FAKE_PORT });
-}
-
-function mockImportRoute(page: Page, response: object) {
-  return page.route("**/api/import", (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify(response),
-    }),
-  );
-}
 
 function mockImportFailure(page: Page, status = 500, error = "All models failed. gemini-3.5-flash: API 500") {
   return page.route("**/api/import", (route) =>

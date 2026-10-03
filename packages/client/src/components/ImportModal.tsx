@@ -5,6 +5,7 @@ import { syncClient } from "../sync/SyncClient.js";
 import { isNativeExport, previewNativeImport, applyNativeImport, computeAiImportOrder, DEFAULT_IMPORT_OPTIONS, type ImportOptions } from "../db/exportImport.js";
 import type { NativeExport, ImportStats } from "../db/exportImport.js";
 import Modal from "./Modal.js";
+import CameraCapture from "./CameraCapture.js";
 
 export type { ImportScope };
 
@@ -325,11 +326,16 @@ const ImportModal: Component<Props> = (props) => {
   let fileInputRef!: HTMLInputElement;
   let cameraInputRef!: HTMLInputElement;
   const isTouchDevice = "ontouchstart" in window;
+  // Without touch, a file input's camera hint only opens a file picker, so
+  // take the photo from a live view instead.
+  const canUseLiveCamera = !!navigator.mediaDevices?.getUserMedia;
+  const [cameraOpen, setCameraOpen] = createSignal(false);
 
   // Reread on each open, since another tab or an earlier session may have left
   // a capture behind.
   createEffect(() => {
     if (props.open) void loadPending().then(setPending);
+    if (!props.open) setCameraOpen(false);
   });
 
   onMount(() => {
@@ -518,7 +524,14 @@ const ImportModal: Component<Props> = (props) => {
             </div>
           )}
         </Show>
+        <Show when={cameraOpen()}>
+          <CameraCapture
+            onCapture={(file) => { setCameraOpen(false); processFile(file); }}
+            onCancel={() => setCameraOpen(false)}
+          />
+        </Show>
         <div
+          hidden={cameraOpen()}
           class="dropzone import-dropzone"
           classList={{ dragging: dragging(), loading: phase() === "extracting" }}
           onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragging(true); }}
@@ -546,10 +559,14 @@ const ImportModal: Component<Props> = (props) => {
         <Show when={error()}>
           {(err) => <div class="field-error" role="alert">{err()}</div>}
         </Show>
-        <div class="actions">
+        <div class="actions" hidden={cameraOpen()}>
           <button class="btn-ghost" onClick={handleClose}>Cancel</button>
-          <Show when={isTouchDevice}>
-            <button class="btn-ghost" disabled={phase() === "extracting"} onClick={() => cameraInputRef.click()}>
+          <Show when={isTouchDevice || canUseLiveCamera}>
+            <button
+              class="btn-ghost"
+              disabled={phase() === "extracting"}
+              onClick={() => (isTouchDevice ? cameraInputRef.click() : setCameraOpen(true))}
+            >
               Take photo
             </button>
           </Show>

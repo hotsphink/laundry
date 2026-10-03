@@ -201,3 +201,43 @@ export async function createListInBoard(
   await modal.getByRole("button", { name: "Save" }).click();
   await modal.waitFor({ state: "hidden" });
 }
+
+const FAKE_HOST = "fake.test";
+const FAKE_PORT = 19999;
+
+// Import reads the AI endpoint from the first enabled sync_endpoint
+// (getApiUrl in ImportModal builds `${proto}://${host}:${port}`), so the mocked
+// /api/import route below is served from https://fake.test:19999.
+export async function setupSyncConfig(page: Page) {
+  await page.evaluate(({ host, port }) => {
+    return new Promise<void>((resolve, reject) => {
+      const req = indexedDB.open("listr2");
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction("sync_endpoints", "readwrite");
+        tx.objectStore("sync_endpoints").put({
+          id: "test-endpoint",
+          host,
+          port,
+          enabled: true,
+          secure: true,
+          last_server_id: null,
+          position: 0,
+        });
+        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.onerror = () => reject(tx.error);
+      };
+      req.onerror = () => reject(req.error);
+    });
+  }, { host: FAKE_HOST, port: FAKE_PORT });
+}
+
+export function mockImportRoute(page: Page, response: object) {
+  return page.route("**/api/import", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(response),
+    }),
+  );
+}
