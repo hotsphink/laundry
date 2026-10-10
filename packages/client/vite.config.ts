@@ -55,6 +55,13 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       target: "esnext",
+      // Ship .map files beside the bundles so remote devtools (about:debugging)
+      // can show the original sources on a deployed instance.
+      sourcemap: true,
+    },
+    css: {
+      // Scripts get source maps in dev by default; CSS needs asking.
+      devSourcemap: true,
     },
     resolve: {
       conditions: ["development", "browser"],
