@@ -1,0 +1,264 @@
+# Parameters for doc/SEED.md. Fill in this form to specialize the app.
+# The values below describe the reference Listr app. SEED.md refers to each
+# value as {{path.to.value}}.
+
+app:
+  name: Listr
+  tagline: "the list app with the stupid name"
+  # Prefix for the auth signature payload: "<auth_prefix>-auth-v1".
+  auth_prefix: listr
+  # window.<console_global> exposes debug helpers.
+  console_global: listr
+  export_tag: listr_export
+  # Use "<board> - <name>" as the document title.
+  title_pattern: "{board} - {app}"
+
+modules:
+  views: true             # table and card views (7.1)
+  ai_import: true         # screenshot/camera import (7.2)
+  integrations: true      # server-side lookups overlaid on items (7.3)
+  operator_console: true  # read-only console at /console (7.4)
+
+deploy:
+  variants: [dev, prod]
+  client_hosting: "static host (GitHub Pages) with hash routing"
+  client_urls:
+    prod: https://listr.aapx.org
+    dev: https://listr-dev.aapx.org
+  default_sync_endpoint:
+    prod: listr-sync.aapx.org:443
+    dev: listr-dev-sync.aapx.org:443
+  server_config_path: "~/.config/listr/<variant>.yaml (LISTR_CONFIG_PATH overrides)"
+  server_data_path: "~/.local/share/listr[/dev]"
+  ports:
+    client_dev: 3000
+    sync_dev: 10443
+    sync_prod: 10000      # bound to 127.0.0.1 behind an nginx TLS proxy
+    e2e_client: 3100
+  cert_source: "tailscale cert (90-day); refresh via scripts/refresh-certs.sh"
+  cert_warn_days: 7
+  cert_check_interval_hours: 12
+  server_service: "user-scoped systemd unit"
+  dev_build_marks: "distinct icons, manifest, and '(Dev)' title"
+
+attribute_types:
+  # internal key: UI label
+  text: Text
+  number: Number          # decimal, no spinner
+  integer: Whole Number
+  date: Date
+  datetime: Date & Time
+  boolean: Yes/No
+  enum: Select
+  tags: Tags
+  url: URL
+  duration: Duration      # stored as minutes
+  todo: Todo
+
+todo:
+  open_state: unchecked   # stored as unset
+  finished_states: [done, cancelled, skipped]
+  labels: {unchecked: To do, done: Done, cancelled: Cancel, skipped: Skip}
+  styles:
+    done: "thick strikethrough"
+    cancelled: "strikethrough, dimmed, italic"
+    skipped: "dimmed, wrapped in parentheses"
+  finished_display_modes: [mixed, end, hidden]   # device-local, per list
+
+list_attributes:
+  - key: display
+    type: enum
+    options: [brief, verbose]
+    default: brief
+    device_local: true
+    control: "density icon in the column header (stacked lines vs lines with sub-lines)"
+
+format:
+  version: 2
+  allowed_tags: [b, i, em, strong, u, s, span, img, a, br]
+  styles: [subdued, bold, italic, underline, strikethrough, cancelled, code, accent, warn, small]
+  variants: [str, url, upper, lower, stars, short]
+  default_new_board_format: "[title] ?[k1] ?[k2] ..."
+
+ui:
+  narrow_breakpoint_px: 768
+  themes: [system, light, dark, high-contrast]
+  default_board_color: "#5b8def"
+  gestures:
+    soft_select_hold_ms: 80
+    move_cancel_px: 10
+    double_tap_ms: 350
+    long_press: "native contextmenu (~500ms)"
+    swallow_click_after_long_press_ms: 600
+    drag_delay_touch_ms: 300
+    drag_start_vibrate_ms: 50
+    cancel_zone_px: 100
+    edge_snap_px: 60
+    edge_snap_cooldown_ms: 350
+    vertical_autoscroll_px: 80
+    horizontal_unlock_px: 40
+  format_diagnostics_debounce_ms: 300
+  scroll_position_debounce_ms: 200
+
+limits:
+  bulk_delete_threshold: 3
+  max_asset_bytes: 700000     # base64 must fit in sync.max_frame_bytes
+
+sync:
+  protocol_version: 9
+  server_accepts: [6, 9]
+  entity_schema_version: 2
+  max_frame_bytes: 1048576
+  rate_limit: {burst: 5000, refill_per_s: 200}
+  max_sockets_per_ip: 20
+  pull_entity_budget: 5000
+  max_future_skew: 5m
+  reconnect_ms: 5000
+  connect_timeout_ms: 10000
+  nonce_ttl_s: 60
+  shared_key_bits: 128
+  grant:
+    secret_bits: 96
+    default_ttl: 24h
+    share_ttl: 7d
+    uses: {one_person: 1, anyone_with_link: 100}
+    burn_after_failed_attempts: 10
+  extra_devices: {max: 2, window: 10m, notice_days: 7}
+  caps: [sync, invite, moderate, admin]   # moderate and admin are reserved
+  allowed_origins:
+    prod: [https://listr.aapx.org, https://hotsphink.github.io, https://finkripper.heron-moth.ts.net]
+    dev: [https://listr-dev.aapx.org, https://finkripper.heron-moth.ts.net:3000, https://localhost:3000]
+
+ai_import:
+  max_dimension_px: 3072
+  jpeg_quality: 0.9
+  live_camera: {ideal: 1920x1080, jpeg_quality: 0.92}
+  provider: gemini
+  model_url: "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+  tiers:
+    - [gemini-3.5-flash]
+    - [gemini-2.5-flash, gemini-3.8-flash, gemini-3.7-flash]   # raced
+  type_hints:
+    duration: 'like "2h21"'
+    imdb: "0.0-10.0"
+    rotten: "0-100"
+    boolean: '"yes"/"no"'
+    tags: "array"
+  per_user_daily_budget: 50   # new: the reference app has none
+
+integrations:
+  runner:
+    max_concurrent: 4
+    timeout_ms: 10000
+    backoff: "60s * 2^n, capped at 6h, at most 5 attempts"
+    tick_s: 60
+  catalog:
+    - id: omdb
+      name: OMDb
+      requires: api_key
+      inputs: "imdb_id if the user set one, else title search"
+      auto_pick: "single result, valid prior pick, or exactly one exact-title match"
+      outputs: [imdb_id, year, rated, genre, director, actors, plot, language,
+                country, poster, imdb_rating, imdb_votes, metascore,
+                runtime_minutes, media_type, total_seasons, rotten_tomatoes]
+      settings: {refresh_days: 30, type: ""}
+      budgets: {daily: 1000, daily_per_key: 500}
+      dev_overrides: {daily_limit: 10, max_concurrent: 1}
+
+console:
+  session: {idle: 12h, absolute: 7d}
+  lockout: {failures: 5, seconds: 30}
+  sse: {replay: 200, heartbeat_s: 25}
+  external_urls: [https://listr-sync.aapx.org]
+
+copy:
+  join_page_focus: "viewing a shared list, not creating an account"
+  share_preview_placeholders: [Bananas, Spinach, Flamethrower]
+  data_notice: >
+    Everyone with access to this shared list can see everything in it,
+    including additions and changes. Data is stored unencrypted on the sync
+    server. Only nicknames are shown to others.
+  nickname_hint: "a nickname, not your real name if you'd rather not"
+  missing_board: >
+    Boards live in each browser separately. This board may still be syncing,
+    may not be shared with you, or may need a join link in this browser.
+
+# Starter boards. These double as golden format examples (SEED.md 6.2).
+board_presets:
+  - name: Movies
+    schema:
+      - {key: imdb, label: IMDB Rating, type: number}
+      - {key: rotten, label: Rotten Tomatoes Rating, type: number}
+      - {key: duration, label: Duration, type: duration}
+      - {key: imdb_id, label: IMDB ID, type: text}
+      - {key: notes, label: Notes, type: text}
+    integrations:
+      - integration_id: omdb
+        enabled: true
+        config: |
+          attributes.imdb_rating = "imdb"
+          attributes.runtime_minutes = "duration"
+          attributes.rotten_tomatoes = "rotten"
+    format: |
+      [title_dpy][notes_dpy][rest]
+
+      rest=if @list.display == "verbose":
+        "[duration_dpy][imdb_dpy][rt_dpy]"
+      end
+
+      # Link to IMDB: direct to IMDB id if set, else search for the title.
+      imdb_link(text)=if @imdb:
+        '<a target=_blank href="https://www.imdb.com/title/[imdb_id]/">[text]</a>'
+      else:
+        '<a target=_blank href="https://www.imdb.com/find/?q=[title:url]">[text]</a>'
+      end
+      title_dpy=imdb_link([title])
+
+      imdb_logo="![IMDB](https://www.svgrepo.com/show/349409/imdb.svg)"
+      imdb_dpy=if [?imdb]: imdb_link([imdb_logo][imdb]) end
+
+      rt_logo="![rotten-tomatoes-logo](hash://<asset-id>.png)"
+      rt_dpy=ifdef:
+        "[rt_logo][rotten]%"
+      end
+
+      duration_dpy=cond(@duration, "  ([duration:short])")
+
+      notes_dpy=if @notes:
+        " ([notes])"
+      end
+    expect:
+      - given: {title: Once, display: brief}
+        renders: "a link titled 'Once' to an IMDb title search"
+      - given: {title: Once, imdb: 7.8, imdb_id: tt0907657, duration: 86, rotten: 97, display: verbose}
+        renders: "'Once' linked to tt0907657, then '  (1h26m)', IMDb logo + 7.8 linked, RT logo + '97%'"
+  - name: Shopping
+    schema:
+      - {key: qty, label: Quantity, type: number}
+      - {key: status, label: "", type: todo}
+    format: |
+      [title][qty_dpy]
+
+      qty_dpy=ifdef: " x [qty]" end
+    expect:
+      - given: {title: Milk, qty: 2}
+        renders: "Milk x 2"
+      - given: {title: Milk}
+        renders: "Milk"
+    list_defaults: {finished_display: end}
+  - name: To Do
+    schema:
+      - {key: todo, label: Todo, type: todo}
+    format: "[title]"
+    expect:
+      - given: {title: Call mom, todo: done}
+        renders: "Call mom, with the done row style"
+
+dev_policies:
+  vcs: "jj; finish with `jj commit -m` so @ is empty"
+  package_manager: "pnpm only (no npm/npx)"
+  e2e_browser: "Playwright Firefox first, Chromium fallback"
+  code_style:
+    - "ASCII only in code and comments"
+    - "no em-dashes or ASCII equivalents"
+    - "brief comments describing current state, active voice"
