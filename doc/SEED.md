@@ -110,9 +110,13 @@ under).
   - empty scalars are null.
 - **Set vs unset** is uniform everywhere: `undefined`, `null`, `""`, `[]`, and
   `NaN` are unset. `0` and `false` are set.
-- **List attributes**: a fixed, non-user-editable schema, `{{list_attributes}}`.
-  Some are **device-local**. They are stored in localStorage keyed by list id,
-  never synced, and still readable by formats.
+- **List settings**: one fixed, non-user-editable schema,
+  `{{list_settings}}`, holds every per-list option (brief/verbose display,
+  finished-item display, view mode). Each setting is scoped `synced` (stored
+  in `List.attributes`) or `device` (stored in localStorage by list id, never
+  synced). All are readable by formats as `[list.key]`. The list editor and
+  the format preview's toggles are generated from this schema, so a new
+  setting needs no new UI code.
 - **Asset**: a content-addressed image. `id` is the first 20 hex chars of the
   SHA-256 of its bytes. It also has `mime_type`, `ext`, and `data`. Formats
   reference assets as `hash://<id>.<ext>`, and the client resolves those to
@@ -132,8 +136,7 @@ edits mergeable.
 **Versioning.** On-disk shape changes bump the Dexie version with an
 `upgrade()`. Never edit an old version block. Synced shape changes bump
 `PROTOCOL_VERSION`, and the server accepts a min..max range. A minimum bump is
-a flag day. After every pull, a "heal" pass rewrites any legacy-shaped records
-that arrived and re-pushes them.
+a flag day.
 
 ---
 
@@ -178,9 +181,9 @@ paste), and a sync status dot linking to settings.
 - **Columns**: one per list. On mobile they scroll horizontally with
   scroll-snap, and a trailing "+ New list" column creates a list and opens its
   editor. On desktop, dragging the background pans the board.
-- **Column header**: name, count, a brief/verbose density toggle (a
-  device-local list attribute), "+" to move the add row to the top, and a menu
-  (Edit, Import, Export, Delete).
+- **Column header**: name, count, a brief/verbose density toggle (the
+  `display` list setting), "+" to add at the top, and a menu (Edit, Clear
+  finished, Uncheck all, Import, Export, Delete).
 - The browser's pull-to-refresh is disabled inside the app.
 
 ### 4.2 Items
@@ -191,10 +194,13 @@ paste), and a sync status dot linking to settings.
     and a finished item back to the open state.
   - Long-press or right-click offers every state.
   - The row carries its state's styles.
-- **Inline add** is always present in every list.
+- **Inline add** is always present at the end of every list. The column
+  header's "+" adds at the top instead.
   - Enter creates the item and keeps the input open.
-  - The add row can be dragged within its list to choose where new items land.
+  - Pasting several lines creates one item per line, in order.
   - An expand control opens the full item form with the typed title.
+  - In a sectioned finished-item display, new items land at the end of the
+    open section.
 - **Item form**: title plus one editor per schema attribute.
   - Numbers are a decimal text field with no spinners.
   - "Whole Number" (integer) is a number input that rounds its value.
@@ -209,15 +215,20 @@ paste), and a sync status dot linking to settings.
   `end` (sections in category order: open, active, finished), or `hidden`
   (finished items are hidden).
   - It is display only: the shared chain order never changes because of it.
-  - Reordering, or inline-adding, in the sectioned view maps back to a chain
-    position that keeps the item in its own section. Resolve ambiguous cases
-    simply.
+  - Reordering in the sectioned view maps back to a chain position that
+    keeps the item in its own section. Resolve ambiguous cases simply.
   - It appears in the list editor only when the board has states.
 - **List actions** for boards with states: "Clear finished" (deletes finished
   items) and "Uncheck all" (returns every item to the open state). This is
   how a shopping list is reused.
-- **Bulk delete** of more than `{{limits.bulk_delete_threshold}}` items happens
-  in one transaction and one batched tombstone push.
+- **Deleting several items** always happens in one transaction and one
+  batched tombstone push.
+- **Undo instead of confirmation.** Deleting, moving, changing state, bulk
+  edits, "Clear finished", and "Uncheck all" act at once and show an Undo
+  toast for `{{ui.undo_seconds}}` seconds. Undo writes the previous values
+  with a new `updated_at` (a delete is undone by re-creating the item, which
+  beats its tombstone). Only deleting a board or list, and leaving a space,
+  ask for confirmation.
 
 ### 4.3 Selection, gestures, drag
 
@@ -228,12 +239,10 @@ paste), and a sync status dot linking to settings.
   first if needed.
   - One item: Edit Item, Choose match (when choices exist).
   - Several items: Edit N items.
-  - Always: Move to list, Delete N (confirm).
+  - Always: Move to list, Delete N.
 - Every menu entry must do the same thing as its gesture equivalent.
 
 **Touch** (timings in `{{ui.gestures}}`).
-- A short still hold soft-selects the item; moving cancels the hold so
-  scrolling still works.
 - Double-tap edits.
 - Long-press anywhere but the drag handle enters **selection mode**.
   - The header becomes a bar: back, "N selected", Edit, Move, Delete.
@@ -267,6 +276,8 @@ Firefox Android reports `maxTouchPoints = 0`.
 
 ### 4.4 Board, list, and schema editing
 
+- **New board** starts from a template: each of `{{board_presets}}` or
+  Blank. The empty state on first run offers the same choice.
 - **Board form**: name, color, space, states, format, attributes, and
   integrations (7.3).
   - Moving a board to another space removes it from the old space's other
@@ -284,42 +295,44 @@ Firefox Android reports `maxTouchPoints = 0`.
     first line.
   - An embedded editor for the **board's** format, clearly labeled as
     belonging to the board. Editing it there does not create an override.
-  - The finished-item display setting.
+  - The list settings, generated from the list settings schema.
 - **Format editors** collapse to their first line until expanded.
   - Diagnostics (with line and column) are debounced.
   - Ctrl/Cmd-Enter saves.
-  - A live preview has a sample-item picker and toggles for device-local list
-    attributes. The default sample is the item with the most *effective* (not
+  - A live preview has a sample-item picker and a toggle for each list
+    setting. The default sample is the item with the most *effective* (not
     user-owned) values set.
-  - Images can be dropped, pasted, picked, or fetched by URL. Each becomes an
-    asset plus a definition `img<id6>="![alt](hash://...)"`.
-- **Clone board**: named "Clone of X", copying the schema and format.
-  - Lists: none, names only (the default), or with items.
-  - Integrations: none, as-is, or all disabled. Hide this section when the
-    board has no integrations.
+  - Images can be dropped, pasted, or picked. Each becomes an asset plus a
+    definition `img<id6>="![alt](hash://...)"`. Remote images need no upload:
+    use `![alt](https://...)` directly.
+- **Clone board**: named "Clone of X". It is an export followed by an import
+  with fresh ids (4.5), so it shares their copy options.
   - It has a space picker that defaults to My Boards, so cloning a shared
     board never shares the clone.
 
-### 4.5 Export and import (native JSON)
+### 4.5 Export, import, and clone (one copy engine)
 
-- Export scopes are all, board, or list. The file nests boards > lists >
-  items in chain order.
-  - "All" includes tombstones and every asset. Narrower scopes include only
-    the referenced assets.
-  - When integrations exist, offer to include their settings (default on) and
-    their filled-in values (default off; these become user values on import).
-- Import shows a preview of the creates, updates, and deletes.
-  - It upserts by id. Tombstones apply with LWW.
-  - Imported items lead each list.
-  - Integrations can be left out, kept as-is, or disabled.
-  - It accepts older export versions, converting legacy formats.
+- **Copy options**, one component shared by Export, Import, and Clone:
+  - Lists: none, names only, or with items (the default for export and
+    import; clone defaults to names only).
+  - Integrations: none, as-is, or all disabled. Export can also include the
+    values integrations filled in (default off; these become user values on
+    import). Hide integration options when no board in scope has any.
+- **Export** scopes are all, board, or list. The file nests boards > lists >
+  items in chain order. "All" includes tombstones and every asset. Narrower
+  scopes include only the referenced assets.
+- **Import** shows a preview of the creates, updates, and deletes. It upserts
+  by id, applies tombstones with LWW, and puts imported items first in each
+  list. Clone imports with fresh ids instead.
+- **Moving to another server** is Export all on the old one, then Import
+  after joining the new one.
 
 ### 4.6 Per-device state, themes, PWA, diagnostics
 
 - **Device-local state** (localStorage, written defensively):
   - theme, sidebar pin, collapsed spaces;
   - last viewed board and list;
-  - per-list finished display, view mode, and local list attributes;
+  - device-scoped list settings;
   - dismissed notices.
 - **Themes**: `{{ui.themes}}`, using CSS `light-dark()` tokens. Respect
   `prefers-reduced-motion`. Hover styles apply only on `(hover: hover)`.
@@ -358,7 +371,8 @@ Firefox Android reports `maxTouchPoints = 0`.
   Ties keep the stored copy. Both sides apply the same rule.
   - The server clamps timestamps to at most `{{sync.max_future_skew}}` ahead
     of its own clock.
-  - Device-local fields are never overwritten by incoming data.
+  - Device-scoped settings are never synced, so the merge has no
+    per-field exceptions.
 - **Tombstones.** Each is `(entity_type, entity_id, deleted_at)`, where
   `deleted_at` is the **current time** at deletion, never derived from
   `updated_at`.
@@ -448,7 +462,6 @@ Firefox Android reports `maxTouchPoints = 0`.
     re-running effects.
   - It shows a QR code and a copyable link, with a choice of one person or
     anyone with the link.
-  - It states how many other boards ride along on the same key.
   - The recipient sees the space under its name.
 - **Join page.** It is about the *shared list*, not about creating an account.
   - It peeks the grant without consuming a use and shows counts with
@@ -457,9 +470,11 @@ Firefox Android reports `maxTouchPoints = 0`.
   - It offers to keep or remove boards created before joining.
   - On a non-Safari iOS browser it recommends Safari.
   - On success it waits for the shared board and opens it.
-  - "Board not found" explains that boards live per browser and offers "Join
-    with a link" (paste or in-page scan, since the iOS camera opens links in
-    the default browser).
+  - "Board not found" explains that boards live per browser and offers
+    "Open a link".
+- **Open a link** is one dialog, used from the sidebar, the missing-board
+  page, and settings: paste or scan in-page (the iOS camera opens links in
+  the default browser), then go to the join page.
 
 ### 5.4 Endpoints
 
@@ -476,7 +491,7 @@ Firefox Android reports `maxTouchPoints = 0`.
   - Identity: nickname and user id.
   - Your devices, renameable, with "this device" marked, and "Add a device".
   - Endpoint cards showing status, server id, and variant/conflict callouts.
-  - Refresh from server, Push all.
+  - Resync: reset cursors, push everything, and pull everything.
   - Backup and restore.
   - About: build time, protocol version, Update now.
 
@@ -548,7 +563,7 @@ must render as described.
     error.
   - `[key/fallback]` renders the fallback when the attribute is unset.
   - ` ?[key]` drops the preceding space when the placeholder is empty.
-  - `[list.key]` reads a list attribute (including device-local ones).
+  - `[list.key]` reads a list setting, whatever its scope.
 - **Literal text and HTML.**
   - Literal text passes through. Markdown links `[text](url)` and images
     `![alt](url)` are supported, and the image URL may be `hash://` for
@@ -645,16 +660,13 @@ Both `title_dpy=link([title])` and `title_dpy="[link([title])]"` work.
 
 ### 7.1 Views (`{{modules.views}}`)
 
-Besides the default list view:
-- **Table**: a raw title column plus one column per attribute, with short
-  cell renderings (empty, Yes/No, `Xh Ym`, joined tags, state labels).
-- **Card**: the formatted title plus label/value pairs for set attributes,
-  with tags as chips.
+Besides the default list view, a **table** view shows a title column plus
+one column per attribute (and the state, if any). Cells use the format
+language's typed renderings (`[key:short]`), so there is one renderer.
 
-The view mode is **per list, per device**, stored locally and never synced.
-On mobile the view switcher lives in a "Display" sheet with the theme picker,
-not in the header. Table and card stack lists vertically. The list view
-scrolls horizontally.
+The view mode is the `view` list setting, scoped per device. On mobile the
+switcher lives in a "Display" sheet with the theme picker, not in the header.
+Table view stacks lists vertically. The list view scrolls horizontally.
 
 ### 7.2 AI screenshot import (`{{modules.ai_import}}`)
 
@@ -782,8 +794,8 @@ A regenerated app must satisfy all of these, in addition to sections 3 to 7.
 3. Deleting an item, or deleting several at once, leaves every survivor
    reachable in the same relative order. Moving an item to the last slot
    works.
-4. Deleting more than the bulk threshold produces a single transaction and a
-   single batched push, not one round trip per item.
+4. Deleting several items produces a single transaction and a single
+   batched push, not one round trip per item.
 5. Two devices inserting after the same item concurrently both keep their
    items, ordered by `created_at`.
 6. A tombstone's `deleted_at` is the wall-clock time of the delete. A device
@@ -796,96 +808,99 @@ A regenerated app must satisfy all of these, in addition to sections 3 to 7.
    it in its section and produces a sensible position in `mixed` mode.
 
 ### Device-local state
-9. Toggling brief/verbose, finished display, or view mode on one device
+9. Undoing a delete restores the item on every device, in its old place,
+   even after the tombstone has synced.
+10. Pasting three lines into the add row creates three items in order.
+11. Toggling brief/verbose, finished display, or view mode on one device
    changes nothing on another device.
-10. After a restart, the app reopens the last board, scrolled to the last
+12. After a restart, the app reopens the last board, scrolled to the last
    list.
 
 ### Formats
-11. Changing a board or list format, locally or on another device, re-renders
+13. Changing a board or list format, locally or on another device, re-renders
    every visible item with the new format without a reload.
-12. A missing top-level attribute renders empty. It never falls back to the
+14. A missing top-level attribute renders empty. It never falls back to the
     title.
-13. A list override can use board definitions. Editing the board so that an
+15. A list override can use board definitions. Editing the board so that an
     override breaks warns before saving.
-14. The format preview shows a populated sample on a board whose only item
+16. The format preview shows a populated sample on a board whose only item
     has integration values and no user values.
-15. Editing the board format from the list editor does not give the list an
+17. Editing the board format from the list editor does not give the list an
     override.
 
 ### Items and UI
-16. "Edit Item" in the context menu opens the editor exactly as double-click
+18. "Edit Item" in the context menu opens the editor exactly as double-click
     does.
-17. Number fields have no spinner buttons. Whole Number exists for integer
+19. Number fields have no spinner buttons. Whole Number exists for integer
     use.
-18. The full flow of checking off every item on a shared shopping list shows
+20. The full flow of checking off every item on a shared shopping list shows
     no privacy warnings and needs no extra confirmations.
-19. Double-clicking empty header space opens Edit Board and selects no text.
+21. Double-clicking empty header space opens Edit Board and selects no text.
     Double-tap does the same on touch.
-20. Dragging across lists on a phone works by edge-snapping. Dropping on the
+22. Dragging across lists on a phone works by edge-snapping. Dropping on the
     cancel zone restores the original position and scroll.
-21. A desktop without touch gets a live camera view for import, not a file
+23. A desktop without touch gets a live camera view for import, not a file
     dialog.
 
 ### Integrations
-22. Picking a match on one device never blanks the item on another device,
+24. Picking a match on one device never blanks the item on another device,
     including before the other device has received the integration result.
     The title it released is preserved as the query, and the item still
     renders.
-23. In the item editor, integration values appear as distinguishable
+25. In the item editor, integration values appear as distinguishable
     placeholders with their source named. Saving without edits stores
     nothing new.
-24. Filtering and the preview sample use effective values (overlay included), not just
+26. Filtering and the preview sample use effective values (overlay included), not just
     user-owned ones.
-25. A quota is honored exactly for a user's whole subtree: when a parent
+27. A quota is honored exactly for a user's whole subtree: when a parent
     and a child both make lookups, both draw on the parent's budget, and
     the count survives a server restart. Testing must never hit the real
     external API; use a fake.
-26. A remote provider and a built-in module with the same descriptor
+28. A remote provider and a built-in module with the same descriptor
     produce the same overlay, choices, and badges.
 
 ### Sync and sharing
-27. Sharing a board issues exactly one grant per share action, and the first
+29. Sharing a board issues exactly one grant per share action, and the first
     share after a board gets its key works.
-28. A person who opens a share link in iOS Firefox and then copies the URL
+30. A person who opens a share link in iOS Firefox and then copies the URL
     into Safari can still get in: either "Join with a link" from the
     missing-board page, or "I already joined in another browser" on the
     spent link.
-29. A browser that already has an account is refused a device link with a
+31. A browser that already has an account is refused a device link with a
     clear explanation, and the grant is not spent.
-30. A shared board's lists and items move into the new namespace on every
+32. A shared board's lists and items move into the new namespace on every
     device, even though only the board's timestamp changed.
-31. A dev client never syncs with a prod server, or the reverse, and learns
+33. A dev client never syncs with a prod server, or the reverse, and learns
     this before authenticating.
-32. Adding an image larger than the frame limit is rejected on the client
+34. Adding an image larger than the frame limit is rejected on the client
     with a message. It never wedges sync in a reconnect loop.
-33. `/api/import` rejects unauthenticated callers.
-34. With two routes to one server configured, dropping the primary route
+35. `/api/import` rejects unauthenticated callers.
+36. With two routes to one server configured, dropping the primary route
     promotes the standby without losing or duplicating pushes.
-35. Inviting a person who already has an account adds the space to that
+37. Inviting a person who already has an account adds the space to that
     account. No second account is created.
 
 ### Onboarding and copy (requested, not yet in the reference app)
-36. Show a data-visibility notice once, when the user first *creates* data (a
+38. Show a data-visibility notice once, when the user first *creates* data (a
     board, list, or item) in a shared namespace. Never show it for edits such
     as checking off an item. It says that everyone with access sees all changes,
     that data is stored unencrypted on the server, and that only nicknames
     are shown.
-37. Onboarding encourages naming each device.
-38. The sidebar makes clear that a space is what gets shared. Every space,
+39. Onboarding encourages naming each device.
+40. The sidebar makes clear that a space is what gets shared. Every space,
     including My Boards, offers "New board".
-39. "?" help affordances explain spaces, sharing, and join links: tap
+41. "?" help affordances explain spaces, sharing, and join links: tap
     to open on touch, hover or click on desktop.
-40. The share *action* icon differs from the *is shared* indicator icon.
-41. "Share" (invite a person) and "Add a device" are labeled so their
+42. The share *action* icon differs from the *is shared* indicator icon.
+43. "Share" (invite a person) and "Add a device" are labeled so their
     difference is obvious.
 
 ### Operations
-42. The server warns about certificate expiry at startup and periodically,
+44. The server warns about certificate expiry at startup and periodically,
     and suggests the refresh script.
-43. Production builds have working source maps for remote debugging on a
+45. Production builds have working source maps for remote debugging on a
     phone.
-44. E2e tests run against their own servers on their own ports, alongside a
+46. E2e tests run against their own servers on their own ports, alongside a
     developer's running dev servers.
 
 ---
@@ -895,9 +910,12 @@ A regenerated app must satisfy all of these, in addition to sections 3 to 7.
 - Field-level merge, CRDTs, or operational transforms.
 - End-to-end or at-rest encryption.
 - Passwords or email accounts. Identity is device keys plus grants.
-- Read-only sharing. An `access` field may exist but is not enforced.
-- User-defined list attributes, `required` enforcement, and auto behaviors
-  beyond `on_create` timestamps. Reserve fields for these, but build no UI.
+- Read-only sharing.
+- User-defined list settings, `required` enforcement, and auto behaviors
+  beyond `on_create` timestamps.
+- Importing legacy data shapes. A regenerated app starts at the current
+  versions.
+- Card view, and fetching remote images into assets.
 - Pruning tombstones.
 - Integration-driven state changes, such as polling a CI job and moving an
   item to finished when it completes. Planned. Keep `state` a plain field
