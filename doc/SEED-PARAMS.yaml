@@ -249,11 +249,11 @@ board_presets:
       imdb_dpy=if [?imdb]: imdb_link([imdb_logo][imdb]) end
 
       rt_logo="![rotten-tomatoes-logo](hash://<asset-id>.png)"
-      rt_dpy=ifdef:
+      rt_dpy=if [?rotten]:
         "[rt_logo][rotten]%"
       end
 
-      duration_dpy=cond(@duration, "  ([duration:short])")
+      duration_dpy=if @duration: "  ([duration:short])" end
 
       notes_dpy=if @notes:
         " ([notes])"
@@ -270,7 +270,7 @@ board_presets:
     format: |
       [title][qty_dpy]
 
-      qty_dpy=ifdef: " x [qty]" end
+      qty_dpy=if [?qty]: " x [qty]" end
     expect:
       - given: {title: Milk, qty: 2}
         renders: "Milk x 2"

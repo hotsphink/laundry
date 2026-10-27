@@ -581,17 +581,17 @@ must render as described.
   - A multi-line body starts after a trailing `=` and ends at dedent.
   - Defining a name that shadows a schema or builtin attribute is an error.
   - Recursion is detected and reported.
-- **Expressions.** Strings in `"..."` or `'...'`, plus flexible quotes
-  `q( ... )` (expanded) and `v( ... )` (verbatim). Adjacent expressions
-  concatenate. Constructs:
+- **Expressions.** Strings are `"..."`, `'...'`, `q( ... )` (expanded), and
+  `v( ... )` (verbatim: no placeholders, HTML still sanitized). After `q` or
+  `v` comes a run of one repeated delimiter character, a space, the text, a
+  space, and the same run closed (`(`/`)`, `<`/`>`, `{`/`}`, `[`/`]`, any
+  other character closes itself). So `q{{{ ... }}}` never needs escapes.
+  Adjacent expressions concatenate. Constructs:
   - `if COND: ... else: ... end`
-  - `cond(COND, a[, b])`
-  - `ifdef: ... else: ... end` (true when every attribute used directly in
-    the body is set)
   - `match EXPR: case => body. ... else => body. end`, with glob
     prefix/suffix cases
   - `join(sep, ...)`, which drops empty values
-  - `style(+a,-b)` and `style(...): ... end`
+  - `style(+a,-b): ... end`, which styles only its body
   - comments with `#` (not on line 1)
 - **Conditions.**
   - `@key` tests truthiness, or gives the raw typed value inside a
@@ -606,7 +606,6 @@ must render as described.
 - **Directives.**
   - `wrap as NAME: ... end` rebinds the whole output, for conditional styling
     of the entire row.
-  - `tooltip: ... end` sets a plain-text tooltip.
 - **Styles.** `{{format.styles}}`. A style `name` maps to CSS class `fmt-name`
   on spans.
 - **Values.**
@@ -925,3 +924,7 @@ A regenerated app must satisfy all of these, in addition to sections 3 to 7.
 - More than one sync server per device. Keep the seams in 5.4 so it can be
   added once a need shapes the design. Independent backends belong in
   remote integration providers (7.3).
+- Format constructs `cond`, `ifdef`, unscoped `style(...)`, and `tooltip`.
+  An implicit "true when everything used is set" conditional may return in
+  a different spelling. Formats that use these constructs need to be
+  rewritten with `if`.
