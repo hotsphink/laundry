@@ -75,11 +75,11 @@ under).
   and every board lives in exactly one. Each user has a **home space** (shown
   as "My Boards") whose key the server issues. Space names travel with the
   server's per-user key list.
-- **Board**: `name`, `color`, `position`, `space` (its sync key; unset means
+- **Board**: `name`, `color`, `after_id`, `space` (its sync key; unset means
   the home space), `schema: AttributeDefinition[]`, `format: {version, text}`,
   `states` (see below), and optional `integrations[]`.
 - **List**: `board_id` (required; there are no boardless lists), `name`,
-  `position`, `format: {version, text} | null` (null inherits the board's), and
+  `after_id`, `format: {version, text} | null` (null inherits the board's), and
   `attributes` for the fixed list schema.
 - **Item**: `list_id`, `title` and `state` (first-class fields, never part of
   the schema), `after_id` (see ordering), `attributes` (user-owned values
@@ -99,7 +99,7 @@ under).
     state.
   - Integrations never fill `state`.
 - **AttributeDefinition**: `key`, `label`, `type`, `default_value`, `options`
-  (for enum/tags), `config` (for example integer min/max), and `position`. New
+  (for enum/tags), `config` (for example integer min/max). Array order is display order. New
   attributes get keys like `field_<n>`. Changing an attribute's type clears its
   default. A default applies only when the value is undefined at creation.
   `auto: on_create timestamp` stamps the creation time.
@@ -123,15 +123,23 @@ under).
   `blob:` URLs. Enforce `{{limits.max_asset_bytes}}` on the client so an asset
   always fits in one sync frame.
 
-**Ordering.** Items form a per-list linked list through `after_id` (null means
-first). This keeps a reorder to a few changed records and keeps concurrent
-edits mergeable.
-- Resolve the order by a depth-first walk from null. When two items claim the
-  same predecessor, order them by `created_at`.
-- Guard against cycles, and append orphans (dangling `after_id`) at the end.
+**Ordering.** Boards, lists, and items are each ordered by one mechanism: a
+linked list through `after_id` (null means first) within their container.
+Boards are ordered within their space, lists within their board, and items
+within their list. This keeps a reorder to a few changed records and keeps
+concurrent edits mergeable. Boards, lists, and items can all be reordered.
+The order of spaces in the sidebar is device state.
+- Resolve the order by a depth-first walk from null, so each branch of a fork
+  stays contiguous. When two entities claim the same predecessor, order them
+  by `created_at`, oldest first.
+- Tombstones of ordered entities keep their container id and `after_id`, and
+  the walk passes through them as invisible nodes. An entity inserted after
+  one that was concurrently deleted lands where the deleted one was.
+- Guard against cycles, and append true orphans (an `after_id` that never
+  existed in the container) at the end.
 - Insert, delete, move, and bulk delete must re-link successors so the chain
-  stays intact.
-- Boards and lists use sparse numeric `position`.
+  stays intact. Moving to another container (an item to another list, a board
+  to another space) is a delete from one chain and an insert into the other.
 
 **Versioning.** On-disk shape changes bump the Dexie version with an
 `upgrade()`. Never edit an old version block. Synced shape changes bump
@@ -373,7 +381,8 @@ Firefox Android reports `maxTouchPoints = 0`.
     of its own clock.
   - Device-scoped settings are never synced, so the merge has no
     per-field exceptions.
-- **Tombstones.** Each is `(entity_type, entity_id, deleted_at)`, where
+- **Tombstones.** Each is `(entity_type, entity_id, deleted_at)`, plus the
+  container id and `after_id` for boards, lists, and items (see Ordering), where
   `deleted_at` is the **current time** at deletion, never derived from
   `updated_at`.
   - A tombstone beats any record with `updated_at <= deleted_at`.
@@ -797,7 +806,10 @@ A regenerated app must satisfy all of these, in addition to sections 3 to 7.
 4. Deleting several items produces a single transaction and a single
    batched push, not one round trip per item.
 5. Two devices inserting after the same item concurrently both keep their
-   items, ordered by `created_at`.
+   items, ordered by `created_at`, and each one's following items stay with
+   it. If one device deletes an item while another inserts after it, the
+   new item lands where the deleted one was, not at the end. The same holds
+   for lists and boards.
 6. A tombstone's `deleted_at` is the wall-clock time of the delete. A device
    whose cursor is newer than the item's `updated_at` still receives the
    delete.
