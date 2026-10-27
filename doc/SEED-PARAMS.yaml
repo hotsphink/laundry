@@ -53,17 +53,26 @@ attribute_types:
   tags: Tags
   url: URL
   duration: Duration      # stored as minutes
-  todo: Todo
 
-todo:
-  open_state: unchecked   # stored as unset
-  finished_states: [done, cancelled, skipped]
-  labels: {unchecked: To do, done: Done, cancelled: Cancel, skipped: Skip}
-  styles:
-    done: "thick strikethrough"
-    cancelled: "strikethrough, dimmed, italic"
-    skipped: "dimmed, wrapped in parentheses"
-  finished_display_modes: [mixed, end, hidden]   # device-local, per list
+# Board state lists offered by "Items can be checked off". The first entry is
+# the open state. Tapping the checkbox picks the first finished state.
+state_categories: [open, active, finished]
+state_presets:
+  To do:
+    - {key: unchecked, label: To do, category: open}
+    - {key: done, label: Done, category: finished, styles: [strikethrough-heavy]}
+    - {key: cancelled, label: Cancelled, category: finished, styles: [strikethrough, subdued, italic]}
+    - {key: skipped, label: Skipped, category: finished, styles: [subdued, parenthesized]}
+  Shopping:
+    - {key: needed, label: Needed, category: open}
+    - {key: got, label: Got, category: finished, styles: [strikethrough-heavy]}
+    - {key: unavailable, label: Unavailable, category: finished, styles: [subdued, italic]}
+  Workflow:
+    - {key: todo, label: To do, category: open}
+    - {key: blocked, label: Blocked, category: active, styles: [warn]}
+    - {key: in_progress, label: In progress, category: active, styles: [accent]}
+    - {key: done, label: Done, category: finished, styles: [strikethrough-heavy]}
+finished_display_modes: [mixed, end, hidden]   # device-local, per list
 
 list_attributes:
   - key: display
@@ -76,7 +85,8 @@ list_attributes:
 format:
   version: 2
   allowed_tags: [b, i, em, strong, u, s, span, img, a, br]
-  styles: [subdued, bold, italic, underline, strikethrough, cancelled, code, accent, warn, small]
+  styles: [subdued, bold, italic, underline, strikethrough, strikethrough-heavy,
+           parenthesized, code, accent, warn, small]
   variants: [str, url, upper, lower, stars, short]
   default_new_board_format: "[title] ?[k1] ?[k2] ..."
 
@@ -246,7 +256,7 @@ board_presets:
   - name: Shopping
     schema:
       - {key: qty, label: Quantity, type: number}
-      - {key: status, label: "", type: todo}
+    states: Shopping
     format: |
       [title][qty_dpy]
 
@@ -258,12 +268,12 @@ board_presets:
         renders: "Milk"
     list_defaults: {finished_display: end}
   - name: To Do
-    schema:
-      - {key: todo, label: Todo, type: todo}
+    schema: []
+    states: To do
     format: "[title]"
     expect:
-      - given: {title: Call mom, todo: done}
-        renders: "Call mom, with the done row style"
+      - given: {title: Call mom, state: done}
+        renders: "Call mom, with the row styled strikethrough-heavy"
 
 dev_policies:
   vcs: "jj; finish with `jj commit -m` so @ is empty"

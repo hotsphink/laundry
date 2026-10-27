@@ -71,15 +71,33 @@ All entities have `id` (UUID; fall back to a Math.random v4 when
 `updated_at`, and `schema_version` (the data-shape version they were authored
 under).
 
-- **Board**: `name`, `color`, `position`, `schema: AttributeDefinition[]`,
-  `format: {version, text}`, optional `sync_key` (its sharing namespace), and
-  optional `integrations[]`.
+- **Space**: a sync key plus a display name. A space is the unit of sharing,
+  and every board lives in exactly one. Each user has a **home space** (shown
+  as "My Boards") whose key the server issues. Space names travel with the
+  server's per-user key list.
+- **Board**: `name`, `color`, `position`, `space` (its sync key; unset means
+  the home space), `schema: AttributeDefinition[]`, `format: {version, text}`,
+  `states` (see below), and optional `integrations[]`.
 - **List**: `board_id` (required; there are no boardless lists), `name`,
   `position`, `format: {version, text} | null` (null inherits the board's), and
   `attributes` for the fixed list schema.
-- **Item**: `list_id`, `title` (a first-class field, never part of the
-  schema), `after_id` (see ordering), `attributes` (user-owned values only), and
-  optional `choices` (picks from integration options, section 7.3).
+- **Item**: `list_id`, `title` and `state` (first-class fields, never part of
+  the schema), `after_id` (see ordering), `attributes` (user-owned values
+  only), and optional `choices` (picks from integration options, section 7.3).
+- **States**: `Board.states` is null (items cannot be checked off) or an
+  ordered list of `{key, label, category, styles[]}`.
+  - `category` is `open`, `active` (for example blocked, waiting, in
+    progress), or `finished`. All behavior derives from the category.
+  - The first entry is the open state, and an unset `Item.state` means it. At
+    least one entry must be finished.
+  - Keys are fixed once created, so stored values never break. Labels are
+    freely editable.
+  - `styles` are format style tokens applied to the whole row.
+  - Presets (`{{state_presets}}`) make setup one step. Turning on "Items can
+    be checked off" applies a preset, which the user may then edit.
+  - Deleting a state that items use asks first, then moves them to the open
+    state.
+  - Integrations never fill `state`.
 - **AttributeDefinition**: `key`, `label`, `type`, `default_value`, `options`
   (for enum/tags), `config` (for example integer min/max), and `position`. New
   attributes get keys like `field_<n>`. Changing an attribute's type clears its
@@ -89,8 +107,6 @@ under).
   - durations are minutes;
   - dates are `YYYY-MM-DD`, and datetimes use the datetime-local string;
   - tags are `string[]`;
-  - a todo is unset (the open state) or one of the finished states
-    `{{todo.finished_states}}`;
   - empty scalars are null.
 - **Set vs unset** is uniform everywhere: `undefined`, `null`, `""`, `[]`, and
   `NaN` are unset. `0` and `false` are set.
@@ -135,19 +151,21 @@ in-browser test page.
 overlay. On wide screens it collapses next to the board after a pick, unless
 the user pins it open; the pin is per device.
 
-The sidebar shows boards in collapsible groups:
-- **My Boards**: unkeyed, or on the user's home key.
-- **Named board groups**: several boards sharing one key, shared together.
-- **Shared Boards**: everything else, shown only when non-empty.
+The sidebar is a list of **spaces**, each collapsible, with My Boards first.
+- Each space has a header with its name, a Share button, and a menu (Rename,
+  Leave space). Its boards follow, then "+ New board" in that space.
+- A space holding a single board of the same name renders as one row, so a
+  board shared on its own does not show a redundant header.
+- **Leave space** removes the space's boards from this account's devices and
+  leaves the key on the server. The confirm names the boards. It is not
+  offered for My Boards.
 
-Each board row has a color stripe and a "shared" indicator. Its menu offers:
-- Rename (inline), Edit, Share, Clone, Import, Export.
-- **Remove**: local only, for keyed boards. The confirm names the other boards
-  under the same key.
-- **Delete**: cascades and tombstones.
+Each board row has a color stripe and a "shared" indicator. Its menu offers
+Rename (inline), Edit, Share, Clone, Import, Export, and Delete (cascades and
+tombstones).
 
-The sidebar footer has New Board, New Board Group, Export all, Import, Receive
-share (scan or paste), and a sync status dot linking to settings.
+The sidebar footer has New space, Export all, Import, Open a link (scan or
+paste), and a sync status dot linking to settings.
 
 **Board page.**
 - **Header**: board name, shared indicator, filtered item count, and a menu
@@ -168,10 +186,11 @@ share (scan or paste), and a sync status dot linking to settings.
 ### 4.2 Items
 
 - Each row shows the rendered format, an integration status badge (7.3), and,
-  if the board has a todo attribute, a todo control for the first one.
-  - Tapping the control toggles between open and done.
-  - Long-press or right-click picks any state.
-  - Each finished state has its own row style, set in `{{todo.styles}}`.
+  if the board has states, a checkbox control.
+  - Tapping it moves an open or active item to the *first* finished state,
+    and a finished item back to the open state.
+  - Long-press or right-click offers every state.
+  - The row carries its state's styles.
 - **Inline add** is always present in every list.
   - Enter creates the item and keeps the input open.
   - The add row can be dragged within its list to choose where new items land.
@@ -181,18 +200,22 @@ share (scan or paste), and a sync status dot linking to settings.
   - "Whole Number" (integer) is a number input that rounds its value.
   - Durations accept `1h42m`, `1h42`, `42m`, or `42`.
   - Tags are toggle chips.
-  - Enums and todos are selects.
+  - Enums and the state are selects.
   - Values supplied by an integration appear as styled placeholders with a
     note naming the integration. They are never saved into the item.
   - Values the board cannot show are listed with the reason.
   - Saving requires a non-empty title, or one supplied by an integration.
 - **Finished-item display** (device-local, per list): `mixed` (in place),
-  `end` (finished items sink below open ones), or `hidden`.
+  `end` (sections in category order: open, active, finished), or `hidden`
+  (finished items are hidden).
   - It is display only: the shared chain order never changes because of it.
   - Reordering, or inline-adding, in the sectioned view maps back to a chain
     position that keeps the item in its own section. Resolve ambiguous cases
     simply.
-  - It appears in the list editor only when the board has a todo attribute.
+  - It appears in the list editor only when the board has states.
+- **List actions** for boards with states: "Clear finished" (deletes finished
+  items) and "Uncheck all" (returns every item to the open state). This is
+  how a shopping list is reused.
 - **Bulk delete** of more than `{{limits.bulk_delete_threshold}}` items happens
   in one transaction and one batched tombstone push.
 
@@ -244,8 +267,10 @@ Firefox Android reports `maxTouchPoints = 0`.
 
 ### 4.4 Board, list, and schema editing
 
-- **Board form**: name, color, share key (blank means the default key),
-  format, attributes, and integrations (7.3).
+- **Board form**: name, color, space, states, format, attributes, and
+  integrations (7.3).
+  - Moving a board to another space removes it from the old space's other
+    members. The server broadcasts the removal to the old key.
   - A new board's format auto-generates as `[title] ?[k1] ?[k2]...` until the
     user edits it.
   - Save is blocked by format errors.
@@ -272,8 +297,8 @@ Firefox Android reports `maxTouchPoints = 0`.
   - Lists: none, names only (the default), or with items.
   - Integrations: none, as-is, or all disabled. Hide this section when the
     board has no integrations.
-  - A clone joins the source's named group if it has one. Otherwise it is
-    unkeyed, so cloning a shared board never shares the clone.
+  - It has a space picker that defaults to My Boards, so cloning a shared
+    board never shares the clone.
 
 ### 4.5 Export and import (native JSON)
 
@@ -292,7 +317,7 @@ Firefox Android reports `maxTouchPoints = 0`.
 ### 4.6 Per-device state, themes, PWA, diagnostics
 
 - **Device-local state** (localStorage, written defensively):
-  - theme, sidebar pin, collapsed groups;
+  - theme, sidebar pin, collapsed spaces;
   - last viewed board and list;
   - per-list finished display, view mode, and local list attributes;
   - dismissed notices.
@@ -318,12 +343,14 @@ Firefox Android reports `maxTouchPoints = 0`.
 
 ### 5.1 Model
 
-- **Namespaces.** Every synced record belongs to a **sync key** namespace.
-  - Lists and items inherit their board's `sync_key`. Unkeyed boards use the
-    user's per-server **home key**, which the server issues; the client never
-    invents one.
-  - Sharing a board gives it a fresh random key (at least 128 bits). A board
-    group is several boards on one key.
+- **Namespaces.** Every synced record belongs to a space's sync key.
+  - Lists and items inherit their board's space. Boards with no space use the
+    home key, which the server issues; the client never invents one.
+  - "New space" creates a fresh random key (at least 128 bits).
+  - **Sharing** always shares a space. Sharing a board that lives in My
+    Boards first moves it into a new space named after the board. Sharing a
+    board in any other space shares that space, and the dialog names the
+    other boards that come along.
 - **Keys are bearer capabilities.** Possessing a key is enough to read and
   write its namespace. Grants are how keys reach people; the server's per-user
   key list decides subscriptions and display names, not access.
@@ -422,8 +449,7 @@ Firefox Android reports `maxTouchPoints = 0`.
   - It shows a QR code and a copyable link, with a choice of one person or
     anyone with the link.
   - It states how many other boards ride along on the same key.
-  - Individual board shares land in the recipient's Shared Boards. Group
-    shares carry the group name.
+  - The recipient sees the space under its name.
 - **Join page.** It is about the *shared list*, not about creating an account.
   - It peeks the grant without consuming a use and shows counts with
     placeholder rows; titles stay private.
@@ -558,8 +584,10 @@ must render as described.
   - `[?key]` and `[?a,?b]` test whether attributes are set.
   - Comparisons `== != < ...`, `AND`/`OR` (mixing them unparenthesized is an
     error), `NOT`, parentheses, `"x" in @tags`, `true`, `false`.
-  - Typed literals cover numbers, booleans, todo states, and durations like
-    `1h3m`.
+  - Typed literals cover numbers, booleans, and durations like `1h3m`.
+  - `[state]` renders the state's label, `[state:str]` its key, and
+    `@state == "done"` or `match @state` test it. The checker validates
+    state keys against the board's list.
 - **Directives.**
   - `wrap as NAME: ... end` rebinds the whole output, for conditional styling
     of the entire row.
@@ -595,7 +623,7 @@ With notes "x", this renders `title (x)`, and the parenthesized part carries
 ```
 [title]
 wrap as top:
-  match "[todo:str]":
+  match "[state:str]":
     "done" => style(+strikethrough) "[top]".
     "skip"* => style(+subdued) "([top])".
     else => "[top]".
@@ -619,7 +647,7 @@ Both `title_dpy=link([title])` and `title_dpy="[link([title])]"` work.
 
 Besides the default list view:
 - **Table**: a raw title column plus one column per attribute, with short
-  cell renderings (empty, Yes/No, `Xh Ym`, joined tags, todo state names).
+  cell renderings (empty, Yes/No, `Xh Ym`, joined tags, state labels).
 - **Card**: the formatted title plus label/value pairs for set attributes,
   with tags as chips.
 
@@ -745,113 +773,119 @@ only when a password hash (scrypt) is configured.
 A regenerated app must satisfy all of these, in addition to sections 3 to 7.
 
 ### Data and ordering
-1. Deleting an item, or deleting several at once, leaves every survivor
+1. Tapping the checkbox on a board with several finished states always picks
+   the first one. "Uncheck all" then reopens every item, and deleting a
+   state moves its items to the open state.
+2. Sharing a board from My Boards moves only that board into a new space.
+   Other members see the space by name, and moving the board out of it again
+   removes it from their devices.
+3. Deleting an item, or deleting several at once, leaves every survivor
    reachable in the same relative order. Moving an item to the last slot
    works.
-2. Deleting more than the bulk threshold produces a single transaction and a
+4. Deleting more than the bulk threshold produces a single transaction and a
    single batched push, not one round trip per item.
-3. Two devices inserting after the same item concurrently both keep their
+5. Two devices inserting after the same item concurrently both keep their
    items, ordered by `created_at`.
-4. A tombstone's `deleted_at` is the wall-clock time of the delete. A device
+6. A tombstone's `deleted_at` is the wall-clock time of the delete. A device
    whose cursor is newer than the item's `updated_at` still receives the
    delete.
-5. A record with a timestamp far in the future is clamped by the server and
+7. A record with a timestamp far in the future is clamped by the server and
    does not win forever.
-6. The order of the shared chain is identical on every device regardless of
+8. The order of the shared chain is identical on every device regardless of
    each device's finished-item display. Dragging an item in `end` mode keeps
    it in its section and produces a sensible position in `mixed` mode.
 
 ### Device-local state
-7. Toggling brief/verbose, finished display, or view mode on one device
+9. Toggling brief/verbose, finished display, or view mode on one device
    changes nothing on another device.
-8. After a restart, the app reopens the last board, scrolled to the last
+10. After a restart, the app reopens the last board, scrolled to the last
    list.
 
 ### Formats
-9. Changing a board or list format, locally or on another device, re-renders
+11. Changing a board or list format, locally or on another device, re-renders
    every visible item with the new format without a reload.
-10. A missing top-level attribute renders empty. It never falls back to the
+12. A missing top-level attribute renders empty. It never falls back to the
     title.
-11. A list override can use board definitions. Editing the board so that an
+13. A list override can use board definitions. Editing the board so that an
     override breaks warns before saving.
-12. The format preview shows a populated sample on a board whose only item
+14. The format preview shows a populated sample on a board whose only item
     has integration values and no user values.
-13. Editing the board format from the list editor does not give the list an
+15. Editing the board format from the list editor does not give the list an
     override.
 
 ### Items and UI
-14. "Edit Item" in the context menu opens the editor exactly as double-click
+16. "Edit Item" in the context menu opens the editor exactly as double-click
     does.
-15. Number fields have no spinner buttons. Whole Number exists for integer
+17. Number fields have no spinner buttons. Whole Number exists for integer
     use.
-16. The full flow of checking off every item on a shared shopping list shows
+18. The full flow of checking off every item on a shared shopping list shows
     no privacy warnings and needs no extra confirmations.
-17. Double-clicking empty header space opens Edit Board and selects no text.
+19. Double-clicking empty header space opens Edit Board and selects no text.
     Double-tap does the same on touch.
-18. Dragging across lists on a phone works by edge-snapping. Dropping on the
+20. Dragging across lists on a phone works by edge-snapping. Dropping on the
     cancel zone restores the original position and scroll.
-19. A desktop without touch gets a live camera view for import, not a file
+21. A desktop without touch gets a live camera view for import, not a file
     dialog.
 
 ### Integrations
-20. Picking a match on one device never blanks the item on another device,
+22. Picking a match on one device never blanks the item on another device,
     including before the other device has received the integration result.
     The title it released is preserved as the query, and the item still
     renders.
-21. In the item editor, integration values appear as distinguishable
+23. In the item editor, integration values appear as distinguishable
     placeholders with their source named. Saving without edits stores
     nothing new.
-22. Filtering and the preview sample use effective values (overlay included), not just
+24. Filtering and the preview sample use effective values (overlay included), not just
     user-owned ones.
-23. A quota is honored exactly for a user's whole subtree: when a parent
+25. A quota is honored exactly for a user's whole subtree: when a parent
     and a child both make lookups, both draw on the parent's budget, and
     the count survives a server restart. Testing must never hit the real
     external API; use a fake.
-24. A remote provider and a built-in module with the same descriptor
+26. A remote provider and a built-in module with the same descriptor
     produce the same overlay, choices, and badges.
 
 ### Sync and sharing
-25. Sharing a board issues exactly one grant per share action, and the first
+27. Sharing a board issues exactly one grant per share action, and the first
     share after a board gets its key works.
-26. A person who opens a share link in iOS Firefox and then copies the URL
+28. A person who opens a share link in iOS Firefox and then copies the URL
     into Safari can still get in: either "Join with a link" from the
     missing-board page, or "I already joined in another browser" on the
     spent link.
-27. A browser that already has an account is refused a device link with a
+29. A browser that already has an account is refused a device link with a
     clear explanation, and the grant is not spent.
-28. A shared board's lists and items move into the new namespace on every
+30. A shared board's lists and items move into the new namespace on every
     device, even though only the board's timestamp changed.
-29. A dev client never syncs with a prod server, or the reverse, and learns
+31. A dev client never syncs with a prod server, or the reverse, and learns
     this before authenticating.
-30. Adding an image larger than the frame limit is rejected on the client
+32. Adding an image larger than the frame limit is rejected on the client
     with a message. It never wedges sync in a reconnect loop.
-31. `/api/import` rejects unauthenticated callers.
-32. With two routes to one server configured, dropping the primary route
+33. `/api/import` rejects unauthenticated callers.
+34. With two routes to one server configured, dropping the primary route
     promotes the standby without losing or duplicating pushes.
-33. Inviting a person who already has an account adds the space to that
+35. Inviting a person who already has an account adds the space to that
     account. No second account is created.
 
 ### Onboarding and copy (requested, not yet in the reference app)
-34. Show a data-visibility notice once, when the user first *creates* data (a
+36. Show a data-visibility notice once, when the user first *creates* data (a
     board, list, or item) in a shared namespace. Never show it for edits such
-    as checking a todo. It says that everyone with access sees all changes,
+    as checking off an item. It says that everyone with access sees all changes,
     that data is stored unencrypted on the server, and that only nicknames
     are shown.
-35. Onboarding encourages naming each device.
-36. The sidebar makes clear how My Boards, Shared Boards, and board groups
-    relate to sharing. Offer "New board" within each section.
-37. "?" help affordances explain sharing, join links, and board groups: tap
+37. Onboarding encourages naming each device.
+38. The sidebar makes clear that a space is what gets shared. Every space,
+    including My Boards, offers "New board".
+39. "?" help affordances explain spaces, sharing, and join links: tap
     to open on touch, hover or click on desktop.
-38. The share *action* icon differs from the *is shared* indicator icon.
-39. "Share" (invite a person) and "Add a device" are labeled so their
+40. The share *action* icon differs from the *is shared* indicator icon.
+41. "Share" (invite a person) and "Add a device" are labeled so their
     difference is obvious.
 
 ### Operations
-40. The server warns about certificate expiry at startup and periodically,
+42. The server warns about certificate expiry at startup and periodically,
     and suggests the refresh script.
-41. Production builds have working source maps for remote debugging on a
+43. Production builds have working source maps for remote debugging on a
     phone.
-42. E2e tests run against their own servers on their own ports, alongside a
+44. E2e tests run against their own servers on their own ports, alongside a
     developer's running dev servers.
 
 ---
@@ -865,6 +899,9 @@ A regenerated app must satisfy all of these, in addition to sections 3 to 7.
 - User-defined list attributes, `required` enforcement, and auto behaviors
   beyond `on_create` timestamps. Reserve fields for these, but build no UI.
 - Pruning tombstones.
+- Integration-driven state changes, such as polling a CI job and moving an
+  item to finished when it completes. Planned. Keep `state` a plain field
+  and `category` a small enum so this can be added.
 - Permission flags on users. Everyone may sync and invite; quotas and
   subtree suspension are the controls.
 - More than one sync server per device. Keep the seams in 5.4 so it can be
