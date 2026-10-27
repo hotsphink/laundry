@@ -358,7 +358,7 @@ Firefox Android reports `maxTouchPoints = 0`.
   1. `hello{protocol_version, client_id, pubkey_jwk, keys[]}`.
   2. `challenge{nonce, server_id, variant, protocol range}`.
   3. `auth{sig}`.
-  4. One of `ok{user, home_key, display_name, caps, user_keys, integrations,
+  4. One of `ok{user, home_key, display_name, user_keys, integrations,
      server_time, notices}`, `needs_grant` (the socket stays open to redeem),
      or a typed error that closes the socket.
 - **Initial sync**: push everything changed locally since each key's cursor
@@ -369,8 +369,8 @@ Firefox Android reports `maxTouchPoints = 0`.
 - **Other messages**: key association and leaving, grant create, peek, and
   redeem, display name, device label, device list, and live fan-out of key
   and device changes to the user's other sockets.
-- **Reconnect**: retry every 5 s. When the key set changes, restart only the
-  connections whose scoped key set actually changed.
+- **Reconnect**: retry every 5 s. When the key set changes, update the live
+  connection's subscriptions in place instead of reconnecting.
 - **Variant guard**: dev and prod clients and servers refuse each other, and
   the check happens before any credentials are sent.
 
@@ -386,24 +386,27 @@ Firefox Android reports `maxTouchPoints = 0`.
 - **Server identity.** The server has a random `server_id`, and the client
   pins it on first use. A changed id puts the endpoint into a `conflict` state
   until the user accepts or disables it.
-- **Users.** A forest: each user was authorized by a parent, and the first
-  user to connect in bootstrap mode becomes root. Each has a self-chosen
-  nickname, caps (`sync`, `invite`, plus reserved `moderate` and `admin`), and
-  a state (active, suspended, or revoked).
-  - Effective state is the worst along the path to the root.
+- **Users.** An invitation tree: each user records who invited them, and the
+  first user to connect in bootstrap mode becomes root. Each has a self-chosen
+  nickname and a state (active, suspended, or revoked). There are no
+  permission flags: every user may sync and invite.
+  - Effective state is the worst along the path to the root, so suspending a
+    user suspends everyone they invited, and restoring them restores the
+    subtree.
   - A device belongs to exactly one user forever.
 - **Grants.** A grant is a join link with a 96-bit secret, of which only a
-  hash is stored. It has a TTL and a use count. Kinds:
-  - `invite`: a new child user, with caps limited to a subset of the
-    issuer's.
-  - `device`: adds this browser to the issuer's account.
-  - `share`: gives an existing user one key.
-  - `guest`: invite plus share, with `sync` only.
+  hash is stored. The sender sets its TTL and use count (one person or anyone
+  with the link). There are two kinds:
+  - **Invite a person**, optionally to a space (one sync key). A browser with
+    no account becomes a new user under the sender and joins the space. A
+    browser that already has an account just gains the space.
+  - **Add my device**: attaches this browser to the sender's own account.
 - **Redemption** is atomic and single-use.
   - Repeated wrong secrets burn the grant.
-  - A browser that already has an account is refused a device or invite link
-    *before* the use is counted, with an explanation.
-  - **Extra device**: a spent guest or invite link may add up to
+  - A browser that already has an account is refused a device link, and an
+    invite link with no space, *before* the use is counted, with an
+    explanation.
+  - **Extra device**: a spent invite link may add up to
     `{{sync.extra_devices.max}}` more browsers for its single redeemer within
     `{{sync.extra_devices.window}}`. This is the Firefox-to-Safari case on iOS.
     The user must opt in explicitly ("I already joined in another browser").
@@ -434,16 +437,18 @@ Firefox Android reports `maxTouchPoints = 0`.
 
 ### 5.4 Endpoints
 
-- A device may configure several endpoints (host, port, TLS, enabled).
-- Endpoints that report the same `server_id` are alternate routes: one is
-  primary and the rest are hot standbys. Different servers sync
-  independently.
-- Each key or board binds to the server it came from. A push goes only to
-  matching connections.
+- A device syncs with **one server identity**. It may configure several
+  endpoints (host, port, TLS, enabled) as alternate routes to that server,
+  for example a tailnet address and a public one. The first to connect is
+  primary and the rest are hot standbys, promoted when it drops.
+- An endpoint that reports a different `server_id` from the pinned one does
+  not sync (see the `conflict` state). Moving to a different server is done
+  with Export all and Import.
+- Keep multi-server additive later: records never name a server, and the
+  endpoint list stays a list.
 - **Settings page**:
-  - Identity: nickname, user id, caps.
-  - Your devices, renameable, with "this device" marked.
-  - Create a join link.
+  - Identity: nickname and user id.
+  - Your devices, renameable, with "this device" marked, and "Add a device".
   - Endpoint cards showing status, server id, and variant/conflict callouts.
   - Refresh from server, Push all.
   - Backup and restore.
@@ -468,11 +473,32 @@ Firefox Android reports `maxTouchPoints = 0`.
   `{{deploy.cert_warn_days}}` days. A separate script refreshes certs. The
   server itself contains no provider-specific logic.
 - **Admin CLI** (`pnpm auth ...`, dry-run unless `--apply`): bootstrap root,
-  list users and keys, issue grant, add or remove key, set state, promote,
-  grant admin, set parent, reset server id.
+  list users and keys, issue grant, add or remove key, set state, set
+  parent, set budget, reset server id.
 - **Redaction**: any field named like key, token, secret, or password is
   scrubbed from logs, errors, and the console, raw and URL-encoded. Sync keys
   appear only as a short prefix.
+
+### 5.6 Usage quotas
+
+Calls that cost the operator money (AI import, integration lookups) are
+limited by **subtree quotas**, because anyone may invite.
+- Every user has a daily budget per kind of call, covering that user and
+  everyone below them in the invitation tree. The default is
+  `{{quotas.default_subtree_daily}}`. Only the operator sets per-user budgets,
+  via the CLI. The root's budget is the server-wide cap.
+- A call is charged to every user on the path from the charged user to the
+  root, and is allowed only if all of them have room. Budgets reset each UTC
+  day. A call over budget waits for the next day.
+- Who is charged:
+  - AI import: the requesting user.
+  - Integration lookups: the user whose push last changed the item. The server
+    records that user on the item row, outside the synced JSON.
+  - Periodic refreshes: the item's last editor, as above.
+- Charge when a call is dispatched, not when it completes, so parallel calls
+  cannot overshoot. Failed calls are not refunded.
+- Persist counters in SQLite so a restart does not reset them. Cache each
+  user's ancestor path and invalidate it when the tree changes.
 
 ---
 
@@ -614,7 +640,7 @@ scrolls horizontally.
   scope and the schema (key, label, type).
   - The endpoint **requires an authenticated, active device**, for example a
     short-lived token issued over the WebSocket session.
-  - Usage is budgeted per user and per day.
+  - Each call is charged against subtree quotas (5.6).
 - **Server**: prompts the configured vision models for JSON in a fixed shape.
   - It adds per-type hints (duration like "2h21", booleans yes/no, tags as an
     array).
@@ -642,6 +668,15 @@ scrolls horizontally.
   - `inputsOf(item)`, which returns null when there is nothing to look up;
   - `run()`, which returns values, internal data, optional choices, a status,
     and an optional refresh time.
+- **Remote providers.** A module may also live in a separate service, so
+  special-purpose backends (a bug tracker, CI status) can be built and
+  deployed independently of the sync server.
+  - The sync server's config lists provider URLs
+    (`{{integrations.remote_providers}}`).
+  - A provider advertises the same descriptor a built-in module does, and
+    answers lookups over HTTP with the same inputs and results as `run()`.
+  - The runner, overlay, choices, and quotas treat remote and built-in
+    modules the same way.
 - **Board config**: `integrations[]` entries of `{integration_id, enabled,
   config TOML}`.
   - `attributes.<module_key> = "<board_key>"` maps outputs, and `""` drops
@@ -667,8 +702,7 @@ scrolls horizontally.
   - Reruns only when the canonical inputs change.
   - Each module has its own queue, with edits ahead of refreshes, plus
     max concurrency and a timeout.
-  - Daily budgets apply overall and per key. Exhausting one waits for the
-    next UTC day.
+  - Lookups are charged against subtree quotas (5.6).
   - Errors back off exponentially with a cap, keeping the last good values.
   - Results are discarded if the inputs changed during a call.
   - Periodic refresh follows `refresh_at`.
@@ -769,47 +803,55 @@ A regenerated app must satisfy all of these, in addition to sections 3 to 7.
     nothing new.
 22. Filtering and the preview sample use effective values (overlay included), not just
     user-owned ones.
-23. A daily budget of 10 calls is honored exactly.
-    Testing must never hit the real external API; use a fake.
+23. A quota is honored exactly for a user's whole subtree: when a parent
+    and a child both make lookups, both draw on the parent's budget, and
+    the count survives a server restart. Testing must never hit the real
+    external API; use a fake.
+24. A remote provider and a built-in module with the same descriptor
+    produce the same overlay, choices, and badges.
 
 ### Sync and sharing
-24. Sharing a board issues exactly one grant per share action, and the first
+25. Sharing a board issues exactly one grant per share action, and the first
     share after a board gets its key works.
-25. A person who opens a share link in iOS Firefox and then copies the URL
+26. A person who opens a share link in iOS Firefox and then copies the URL
     into Safari can still get in: either "Join with a link" from the
     missing-board page, or "I already joined in another browser" on the
     spent link.
-26. A browser that already has an account is refused a device link with a
+27. A browser that already has an account is refused a device link with a
     clear explanation, and the grant is not spent.
-27. A shared board's lists and items move into the new namespace on every
+28. A shared board's lists and items move into the new namespace on every
     device, even though only the board's timestamp changed.
-28. A dev client never syncs with a prod server, or the reverse, and learns
+29. A dev client never syncs with a prod server, or the reverse, and learns
     this before authenticating.
-29. Adding an image larger than the frame limit is rejected on the client
+30. Adding an image larger than the frame limit is rejected on the client
     with a message. It never wedges sync in a reconnect loop.
-30. `/api/import` rejects unauthenticated callers.
+31. `/api/import` rejects unauthenticated callers.
+32. With two routes to one server configured, dropping the primary route
+    promotes the standby without losing or duplicating pushes.
+33. Inviting a person who already has an account adds the space to that
+    account. No second account is created.
 
 ### Onboarding and copy (requested, not yet in the reference app)
-31. Show a data-visibility notice once, when the user first *creates* data (a
+34. Show a data-visibility notice once, when the user first *creates* data (a
     board, list, or item) in a shared namespace. Never show it for edits such
     as checking a todo. It says that everyone with access sees all changes,
     that data is stored unencrypted on the server, and that only nicknames
     are shown.
-32. Onboarding encourages naming each device.
-33. The sidebar makes clear how My Boards, Shared Boards, and board groups
+35. Onboarding encourages naming each device.
+36. The sidebar makes clear how My Boards, Shared Boards, and board groups
     relate to sharing. Offer "New board" within each section.
-34. "?" help affordances explain sharing, join links, and board groups: tap
+37. "?" help affordances explain sharing, join links, and board groups: tap
     to open on touch, hover or click on desktop.
-35. The share *action* icon differs from the *is shared* indicator icon.
-36. "Share" and "Create join link" are labeled so their difference is
-    obvious.
+38. The share *action* icon differs from the *is shared* indicator icon.
+39. "Share" (invite a person) and "Add a device" are labeled so their
+    difference is obvious.
 
 ### Operations
-37. The server warns about certificate expiry at startup and periodically,
+40. The server warns about certificate expiry at startup and periodically,
     and suggests the refresh script.
-38. Production builds have working source maps for remote debugging on a
+41. Production builds have working source maps for remote debugging on a
     phone.
-39. E2e tests run against their own servers on their own ports, alongside a
+42. E2e tests run against their own servers on their own ports, alongside a
     developer's running dev servers.
 
 ---
@@ -823,3 +865,8 @@ A regenerated app must satisfy all of these, in addition to sections 3 to 7.
 - User-defined list attributes, `required` enforcement, and auto behaviors
   beyond `on_create` timestamps. Reserve fields for these, but build no UI.
 - Pruning tombstones.
+- Permission flags on users. Everyone may sync and invite; quotas and
+  subtree suspension are the controls.
+- More than one sync server per device. Keep the seams in 5.4 so it can be
+  added once a need shapes the design. Independent backends belong in
+  remote integration providers (7.3).

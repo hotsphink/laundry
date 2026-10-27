@@ -124,7 +124,7 @@ sync:
     uses: {one_person: 1, anyone_with_link: 100}
     burn_after_failed_attempts: 10
   extra_devices: {max: 2, window: 10m, notice_days: 7}
-  caps: [sync, invite, moderate, admin]   # moderate and admin are reserved
+  endpoints: "one server identity; several routes (tailnet, public) as hot standbys"
   allowed_origins:
     prod: [https://listr.aapx.org, https://hotsphink.github.io, https://finkripper.heron-moth.ts.net]
     dev: [https://listr-dev.aapx.org, https://finkripper.heron-moth.ts.net:3000, https://localhost:3000]
@@ -144,7 +144,6 @@ ai_import:
     rotten: "0-100"
     boolean: '"yes"/"no"'
     tags: "array"
-  per_user_daily_budget: 50   # new: the reference app has none
 
 integrations:
   runner:
@@ -162,8 +161,20 @@ integrations:
                 country, poster, imdb_rating, imdb_votes, metascore,
                 runtime_minutes, media_type, total_seasons, rotten_tomatoes]
       settings: {refresh_days: 30, type: ""}
-      budgets: {daily: 1000, daily_per_key: 500}
-      dev_overrides: {daily_limit: 10, max_concurrent: 1}
+      dev_overrides: {max_concurrent: 1}
+  # Separate services speaking the module descriptor and lookup contract.
+  remote_providers: []
+
+# Daily budgets per subtree of the invitation tree (SEED.md 5.6).
+quotas:
+  default_subtree_daily:
+    ai_import: 50
+    integration_lookup: 500
+  root_daily:              # the server-wide cap
+    ai_import: 200
+    integration_lookup: 1000
+  dev_root_daily:
+    integration_lookup: 10
 
 console:
   session: {idle: 12h, absolute: 7d}
