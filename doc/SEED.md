@@ -551,11 +551,13 @@ must render as described.
 
 ### 6.1 Essentials
 
-- **Shape.** A format is a top-level template (line 1), then optional
-  directives, a blank line, then definitions.
+- **Shape.** A format is a top-level template (line 1), then definitions.
+  Blank lines and `#` comments may appear anywhere after line 1.
   - It is stored as `{version, text}`.
   - A list override replaces only line 1. It inherits all of the board's
-    directives and definitions, and may add or redefine definitions.
+    definitions, and may add or redefine definitions.
+  - Any future per-format setting becomes a reserved definition name (for
+    example `tooltip=EXPR`), not new syntax.
 - **Placeholders.**
   - `[key]` gives an attribute's default rendering.
   - `[key:variant]` is a typed rendering: `str`, `url`, `upper`, `lower`,
@@ -600,7 +602,6 @@ must render as described.
     row's classes are the board state's styles, then every evaluated `+`,
     then every evaluated `-`, so order of evaluation does not matter.
     `item` is the only scope name for now (see 9).
-  - comments with `#` (not on line 1)
 - **Conditions.**
   - `@key` tests truthiness, or gives the raw typed value inside a
     comparison.

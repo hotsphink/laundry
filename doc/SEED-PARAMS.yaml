@@ -238,7 +238,7 @@ board_presets:
       end
 
       # Link to IMDB: direct to IMDB id if set, else search for the title.
-      imdb_link(text)=if @imdb:
+      imdb_link(text)=if @imdb_id:
         '<a target=_blank href="https://www.imdb.com/title/[imdb_id]/">[text]</a>'
       else:
         '<a target=_blank href="https://www.imdb.com/find/?q=[title:url]">[text]</a>'
