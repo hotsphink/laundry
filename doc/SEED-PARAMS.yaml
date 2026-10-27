@@ -100,7 +100,7 @@ format:
   styles: [subdued, bold, italic, underline, strikethrough, strikethrough-heavy,
            parenthesized, code, accent, warn, small]
   variants: [str, url, upper, lower, stars, short]
-  default_new_board_format: "[title] ?[k1] ?[k2] ..."
+  default_new_board_format: '[title][" " k1][" " k2] ...'
 
 ui:
   narrow_breakpoint_px: 768
@@ -249,15 +249,11 @@ board_presets:
       imdb_dpy=if [?imdb]: imdb_link([imdb_logo][imdb]) end
 
       rt_logo="![rotten-tomatoes-logo](hash://<asset-id>.png)"
-      rt_dpy=if [?rotten]:
-        "[rt_logo][rotten]%"
-      end
+      rt_dpy=["[rt_logo]" rotten "%"]
 
-      duration_dpy=if @duration: "  ([duration:short])" end
+      duration_dpy=["  (" duration:short ")"]
 
-      notes_dpy=if @notes:
-        " ([notes])"
-      end
+      notes_dpy=[" (" notes ")"]
     expect:
       - given: {title: Once, display: brief}
         renders: "a link titled 'Once' to an IMDb title search"
@@ -268,9 +264,7 @@ board_presets:
       - {key: qty, label: Quantity, type: number}
     states: Shopping
     format: |
-      [title][qty_dpy]
-
-      qty_dpy=if [?qty]: " x [qty]" end
+      [title][" x " qty]
     expect:
       - given: {title: Milk, qty: 2}
         renders: "Milk x 2"

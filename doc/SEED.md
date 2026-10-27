@@ -282,7 +282,7 @@ Firefox Android reports `maxTouchPoints = 0`.
   integrations (7.3).
   - Moving a board to another space removes it from the old space's other
     members. The server broadcasts the removal to the old key.
-  - A new board's format auto-generates as `[title] ?[k1] ?[k2]...` until the
+  - A new board's format auto-generates as `[title][" " k1][" " k2]...` until the
     user edits it.
   - Save is blocked by format errors.
   - If an edit breaks a list override that previously compiled, warn and
@@ -562,7 +562,10 @@ must render as described.
     `stars`, `short` (for durations and dates). An inapplicable variant is an
     error.
   - `[key/fallback]` renders the fallback when the attribute is unset.
-  - ` ?[key]` drops the preceding space when the placeholder is empty.
+  - Affixes: `[" (" notes ")"]` renders ` (x)` when the placeholder renders
+    non-empty (including via its fallback) and nothing otherwise. Affixes
+    are strings before and after the key and its variant and fallback, and
+    they expand placeholders like any string.
   - `[list.key]` reads a list setting, whatever its scope.
 - **Literal text and HTML.**
   - Literal text passes through. Markdown links `[text](url)` and images
@@ -592,6 +595,11 @@ must render as described.
     prefix/suffix cases
   - `join(sep, ...)`, which drops empty values
   - `style(+a,-b): ... end`, which styles only its body
+  - `style(+a,-b) for item`, which styles the whole row wherever it is
+    evaluated, including inside definitions. It rewrites no output. The
+    row's classes are the board state's styles, then every evaluated `+`,
+    then every evaluated `-`, so order of evaluation does not matter.
+    `item` is the only scope name for now (see 9).
   - comments with `#` (not on line 1)
 - **Conditions.**
   - `@key` tests truthiness, or gives the raw typed value inside a
@@ -603,9 +611,6 @@ must render as described.
   - `[state]` renders the state's label, `[state:str]` its key, and
     `@state == "done"` or `match @state` test it. The checker validates
     state keys against the board's list.
-- **Directives.**
-  - `wrap as NAME: ... end` rebinds the whole output, for conditional styling
-    of the entire row.
 - **Styles.** `{{format.styles}}`. A style `name` maps to CSS class `fmt-name`
   on spans.
 - **Values.**
@@ -627,23 +632,18 @@ compile without diagnostics against its preset schema and render as its
 ```
 [title][extra]
 
-extra=if [?notes]:
-  style(+subdued): " ([notes])" end
-end
+extra=style(+subdued): [" (" notes ")"] end
 ```
 With notes "x", this renders `title (x)`, and the parenthesized part carries
 `fmt-subdued`. Without notes it renders `title`.
 
 ```
-[title]
-wrap as top:
-  match "[state:str]":
-    "done" => style(+strikethrough) "[top]".
-    "skip"* => style(+subdued) "([top])".
-    else => "[top]".
-  end
-end
+[title][flag]
+
+flag=if @important: style(+bold) for item end
 ```
+With `important` true, the row carries `fmt-bold` and the text is just the
+title. With a state whose styles include `subdued`, the row carries both.
 
 ```
 [title_dpy]
@@ -928,3 +928,6 @@ A regenerated app must satisfy all of these, in addition to sections 3 to 7.
   An implicit "true when everything used is set" conditional may return in
   a different spelling. Formats that use these constructs need to be
   rewritten with `if`.
+- Style scopes other than `item`. Planned: `style(...) as NAME: ... end`
+  names a scope that inner code targets with `style(...) for NAME`, and
+  table view may add a `cell` scope.
