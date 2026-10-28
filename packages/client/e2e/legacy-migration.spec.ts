@@ -70,3 +70,48 @@ test("carries over sync_config/sync_endpoints from the legacy database and delet
   }));
   expect(legacyExisted).toBe(false);
 });
+
+test("leaves a regenerated app's \"listr\" database alone", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    const req = indexedDB.deleteDatabase("listr2");
+    req.onsuccess = () => resolve();
+    req.onerror = () => resolve();
+  }));
+
+  // Seed a "listr" database shaped like the regenerated app's (it has "meta").
+  await page.evaluate(() => new Promise<void>((resolve, reject) => {
+    const req = indexedDB.open("listr");
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      db.createObjectStore("meta", { keyPath: "k" });
+      db.createObjectStore("outbox", { keyPath: "k" });
+    };
+    req.onsuccess = () => {
+      const db = req.result;
+      const tx = db.transaction("meta", "readwrite");
+      tx.objectStore("meta").put({ k: "identity", v: "new-app" });
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onerror = () => reject(tx.error);
+    };
+    req.onerror = () => reject(req.error);
+  }));
+
+  await page.reload();
+  await page.waitForSelector(".sidebar");
+  await page.waitForTimeout(1000);
+
+  const kept = await page.evaluate(() => new Promise<string | null>((resolve) => {
+    const req = indexedDB.open("listr");
+    req.onupgradeneeded = () => { req.transaction?.abort(); };
+    req.onsuccess = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains("meta")) { db.close(); resolve(null); return; }
+      const get = db.transaction("meta", "readonly").objectStore("meta").get("identity");
+      get.onsuccess = () => { db.close(); resolve(get.result?.v ?? null); };
+      get.onerror = () => { db.close(); resolve(null); };
+    };
+    req.onerror = () => resolve(null);
+  }));
+  expect(kept).toBe("new-app");
+});

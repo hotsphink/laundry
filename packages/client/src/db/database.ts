@@ -416,6 +416,8 @@ async function migrateFromLegacyDatabase(): Promise<void> {
   if (await db.sync_config.get("default")) return; // already migrated, or fresh install already configured
 
   const legacy = await readLegacyConfig();
+  // The regenerated app reuses the "listr" name; never delete its database.
+  if (legacy.newApp) return;
   if (legacy.syncConfig) {
     await db.sync_config.put(legacy.syncConfig);
     if (legacy.syncEndpoints.length) await db.sync_endpoints.bulkPut(legacy.syncEndpoints);
@@ -423,9 +425,11 @@ async function migrateFromLegacyDatabase(): Promise<void> {
   indexedDB.deleteDatabase(LEGACY_DB_NAME);
 }
 
-function readLegacyConfig(): Promise<{ syncConfig: SyncConfig | null; syncEndpoints: SyncEndpoint[] }> {
+// `newApp` is true when "listr" belongs to the regenerated app, which has a
+// "meta" store that the pre-flag-day database never had.
+function readLegacyConfig(): Promise<{ syncConfig: SyncConfig | null; syncEndpoints: SyncEndpoint[]; newApp: boolean }> {
   return new Promise((resolve) => {
-    const empty = { syncConfig: null, syncEndpoints: [] };
+    const empty = { syncConfig: null, syncEndpoints: [], newApp: false };
     // No version specified: opens at whatever version already exists, or — if
     // the legacy database never existed on this device — creates a fresh
     // empty one. Abort that creation in onupgradeneeded so a fresh install
@@ -434,6 +438,11 @@ function readLegacyConfig(): Promise<{ syncConfig: SyncConfig | null; syncEndpoi
     req.onupgradeneeded = () => req.transaction?.abort();
     req.onsuccess = () => {
       const idb = req.result;
+      if (idb.objectStoreNames.contains("meta")) {
+        idb.close();
+        resolve({ ...empty, newApp: true });
+        return;
+      }
       if (!idb.objectStoreNames.contains("sync_config")) {
         idb.close();
         resolve(empty);
@@ -451,7 +460,7 @@ function readLegacyConfig(): Promise<{ syncConfig: SyncConfig | null; syncEndpoi
           syncEndpoints = (e.target as IDBRequest).result ?? [];
         };
       }
-      tx.oncomplete = () => { idb.close(); resolve({ syncConfig, syncEndpoints }); };
+      tx.oncomplete = () => { idb.close(); resolve({ syncConfig, syncEndpoints, newApp: false }); };
       tx.onerror = () => { idb.close(); resolve(empty); };
     };
     req.onerror = () => resolve(empty);
