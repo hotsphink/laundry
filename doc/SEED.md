@@ -592,7 +592,16 @@ must render as described.
   - `name=EXPR` defines a derived attribute, used as `[name]`.
   - `name(p1,p2)=EXPR` is parameterized and called as `[name(arg)]` or, in
     expressions, `name(EXPR)`.
-  - A multi-line body starts after a trailing `=` and ends at dedent.
+  - After line 1, whitespace and newlines carry no meaning. A definition
+    ends where the next header (`name=` or `name(params)=`, never `==` or
+    `=>`) begins. Bare words are not expressions and `=` never appears
+    inside one, so the grammar alone finds the boundary. Any layout parses
+    the same, including several definitions on one line.
+  - Column 0 is only a recovery hint. When a construct or string is left
+    open, the parser reports the error ("missing `end`", "unterminated
+    string") at the last column-0 header inside it and resumes there, so
+    later definitions still compile. A column-0 header inside an open
+    construct that does parse still warns.
   - Defining a name that shadows a schema or builtin attribute is an error.
   - Recursion is detected and reported.
 - **Expressions.** Strings are `"..."`, `'...'`, `q( ... )` (expanded), and
@@ -662,6 +671,16 @@ link(text)=if @imdb_id: '<a href="https://www.imdb.com/title/[imdb_id]/">[text]<
 title_dpy=link([title])
 ```
 Both `title_dpy=link([title])` and `title_dpy="[link([title])]"` work.
+
+```
+[a][b]
+
+a=if @title:
+  "x"
+b="y"
+```
+This reports one error, "missing `end`", at line 5. `b` still compiles, so
+there is no "unknown name" error for `[b]`.
 
 ---
 
