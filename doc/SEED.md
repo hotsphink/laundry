@@ -113,8 +113,13 @@ under).
 - **List settings**: one fixed, non-user-editable schema,
   `{{list_settings}}`, holds every per-list option (brief/verbose display,
   finished-item display, view mode). Each setting is scoped `synced` (stored
-  in `List.attributes`) or `device` (stored in localStorage by list id, never
-  synced). All are readable by formats as `[list.key]`. The list editor and
+  in `List.attributes`) or `device`. A device setting has a synced per-list
+  default in `List.attributes` (set by board presets' `list_defaults` or the
+  list editor) and an optional device-local override in localStorage by
+  list id, which never syncs. The effective value is the override, else the
+  list's default, else the schema default. The list editor sets the
+  list's defaults; quick toggles (the density icon, the view switch) set the
+  device override, and "Reset to list default" clears it. All are readable by formats as `[list.key]`. The list editor and
   the format preview's toggles are generated from this schema, so a new
   setting needs no new UI code.
 - **Asset**: a content-addressed image. `id` is the first 20 hex chars of the
@@ -340,7 +345,7 @@ Firefox Android reports `maxTouchPoints = 0`.
 - **Device-local state** (localStorage, written defensively):
   - theme, sidebar pin, collapsed spaces;
   - last viewed board and list;
-  - device-scoped list settings;
+  - device-local overrides of list settings;
   - dismissed notices.
 - **Themes**: `{{ui.themes}}`, using CSS `light-dark()` tokens. Respect
   `prefers-reduced-motion`. Hover styles apply only on `(hover: hover)`.
@@ -379,8 +384,8 @@ Firefox Android reports `maxTouchPoints = 0`.
   Ties keep the stored copy. Both sides apply the same rule.
   - The server clamps timestamps to at most `{{sync.max_future_skew}}` ahead
     of its own clock.
-  - Device-scoped settings are never synced, so the merge has no
-    per-field exceptions.
+  - Device-local overrides of list settings are never synced, so the merge
+    has no per-field exceptions.
 - **Tombstones.** Each is `(entity_type, entity_id, deleted_at)`, plus the
   container id and `after_id` for boards, lists, and items (see Ordering), where
   `deleted_at` is the **current time** at deletion, never derived from
@@ -405,9 +410,11 @@ Firefox Android reports `maxTouchPoints = 0`.
   Origin allowlist (`{{server.limits}}`). A missing Origin is allowed for
   non-browser tools.
 - **Handshake**:
-  1. `hello{protocol_version, client_id, pubkey_jwk, keys[]}`.
-  2. `challenge{nonce, server_id, variant, protocol range}`.
-  3. `auth{sig}`.
+  1. `hello{protocol_version, variant, client_id, pubkey_jwk}`. It carries
+     no keys. The server refuses a hello without a matching `variant`.
+  2. `challenge{nonce, server_id, variant, protocol range}`. The client
+     checks variant, protocol range, and its pinned `server_id` here.
+  3. `auth{sig, keys[]}`. Bearer keys travel only after those checks.
   4. One of `ok{user, home_key, display_name, user_keys, integrations,
      server_time, notices}`, `needs_grant` (the socket stays open to redeem),
      or a typed error that closes the socket.
