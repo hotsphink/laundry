@@ -617,11 +617,13 @@ must render as described.
   space, and the same run closed (`(`/`)`, `<`/`>`, `{`/`}`, `[`/`]`, any
   other character closes itself). So `q{{{ ... }}}` never needs escapes.
   Adjacent expressions concatenate. Constructs:
-  - `if COND: ... else: ... end`
+  - `if COND: ... else if COND: ... else: ... end`, sharing one `end`
   - `match EXPR: case => body. ... else => body. end`, with glob
     prefix/suffix cases
   - `join(sep, ...)`, which drops empty values
-  - `style(+a,-b): ... end`, which styles only its body
+  - `style(+a,-b): ... end`, which styles only its body. A bare name means
+    `+name`. Because CSS cannot remove an ancestor's style, a scoped `-x`
+    emits class `fmt-no-x`, and the stylesheet defines every `fmt-no-*`.
   - `style(+a,-b) for item`, which styles the whole row wherever it is
     evaluated, including inside definitions. It rewrites no output. The
     row's classes are the board state's styles, then every evaluated `+`,
@@ -632,11 +634,12 @@ must render as described.
     comparison.
   - `[?key]` and `[?a,?b]` test whether attributes are set.
   - Comparisons `== != < ...`, `AND`/`OR` (mixing them unparenthesized is an
-    error), `NOT`, parentheses, `"x" in @tags`, `true`, `false`.
+    error), `NOT`, parentheses (keywords in either case, and reserved), `"x" in @tags`, `true`, `false`.
   - Typed literals cover numbers, booleans, and durations like `1h3m`.
   - `[state]` renders the state's label, `[state:str]` its key, and
     `@state == "done"` or `match @state` test it. The checker validates
-    state keys against the board's list.
+    string literals compared with or matched against a closed set: state
+    keys, enum and tags options, and list setting values.
 - **Styles.** `{{format.styles}}`. A style `name` maps to CSS class `fmt-name`
   on spans.
 - **Values.**
@@ -646,8 +649,9 @@ must render as described.
   - Durations render as "1 hour 26 minutes", or "1h26m" with `:short`.
 - **Diagnostics.** The parser recovers from errors and reports every one with
   line and column. Static checks run against the schema: unknown attributes
-  (treated as unset at display time), bad variants, and `[?bool]` (warns to
-  suggest `@bool`).
+  (an error that blocks saving, so a list override broken by a board edit is
+  caught; at display time they render unset), bad variants, and `[?bool]`
+  (warns to suggest `@bool`).
 
 ### 6.2 Golden examples
 
