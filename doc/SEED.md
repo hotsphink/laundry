@@ -170,6 +170,9 @@ the user pins it open; the pin is per device.
 The sidebar is a list of **spaces**, each collapsible, with My Boards first.
 - Each space has a header with its name, a Share button, and a menu (Rename,
   Leave space). Its boards follow, then "+ New board" in that space.
+- The My Boards header has neither: sharing the home key would expose every
+  personal board, present and future. Its boards are shared one at a time
+  from their own rows (5.1).
 - A space holding a single board of the same name renders as one row, so a
   board shared on its own does not show a redundant header.
 - **Leave space** removes the space's boards from this account's devices and
@@ -229,7 +232,9 @@ paste), and a sync status dot linking to settings.
   (finished items are hidden).
   - It is display only: the shared chain order never changes because of it.
   - Reordering in the sectioned view maps back to a chain position that
-    keeps the item in its own section. Resolve ambiguous cases simply.
+    keeps the item in its own section: dropped below an item, it goes
+    directly after that item in the chain; dropped at the top of a section,
+    directly before the section's first item.
   - It appears in the list editor only when the board has states.
 - **List actions** for boards with states: "Clear finished" (deletes finished
   items) and "Uncheck all" (returns every item to the open state). This is
@@ -277,8 +282,8 @@ moved items in order, and skips items already in the target.
 - Dragging starts only from the handle: delayed on touch, immediate with a
   mouse, with a short vibration at start.
 - Items can move across lists within a board. Near a screen edge the board
-  snaps to the adjacent column; near a column's top or bottom, the column
-  scrolls.
+  snaps to the adjacent column, and snaps again after a short dwell while
+  the drag stays there; near a column's top or bottom, the column scrolls.
 - On touch there is a cancel zone at the top of the screen.
 - The new order is applied to the UI synchronously before the async DB write,
   so nothing jumps.
@@ -423,9 +428,16 @@ Firefox Android reports `maxTouchPoints = 0`.
   The reply is a `snapshot` with per-key server times.
 - **Live updates**: `push_entity` and `push_delete` are broadcast to the other
   sockets on that key. There is no ack.
+- **Push tracking**: every local write newer than the last one the server
+  has accepted for that record gets pushed. A second edit to the same record
+  on the same connection is pushed like the first; bookkeeping that clears
+  an accepted write must not suppress later ones.
 - **Other messages**: key association and leaving, grant create, peek, and
   redeem, display name, device label, device list, and live fan-out of key
   and device changes to the user's other sockets.
+  - A connected client that redeems a grant pulls the new key at once,
+    without waiting for a reconnect. A key it already added locally still
+    counts as new for this purpose.
 - **Reconnect**: retry every 5 s. When the key set changes, update the live
   connection's subscriptions in place instead of reconnecting.
 - **Variant guard**: dev and prod clients and servers refuse each other, and
@@ -467,7 +479,8 @@ Firefox Android reports `maxTouchPoints = 0`.
     `{{sync.extra_devices.max}}` more browsers for its single redeemer within
     `{{sync.extra_devices.window}}`. This is the Firefox-to-Safari case on iOS.
     The user must opt in explicitly ("I already joined in another browser").
-    The account's other devices see a dismissible notice.
+    The account's other devices see a notice: a dismissible banner at the
+    top of the main area. Dismissal is per device.
 - **Join link**: `<base>#/join/<6-char hash of server_id>/<grant_id>.<secret>[?b=<board>]`.
   - The link carries the server's identity, never its address.
   - The client resolves the hash against its configured endpoints, then the
@@ -486,6 +499,8 @@ Firefox Android reports `maxTouchPoints = 0`.
   - It offers to keep or remove boards created before joining.
   - On a non-Safari iOS browser it recommends Safari.
   - On success it waits for the shared board and opens it.
+  - It works in a browser that has a sync route but no account yet, and
+    after a refused redemption it stays usable for another attempt.
   - "Board not found" explains that boards live per browser and offers
     "Open a link".
 - **Open a link** is one dialog, used from the sidebar, the missing-board
@@ -527,7 +542,8 @@ Firefox Android reports `maxTouchPoints = 0`.
   - integration results.
 - **Data is plaintext** on the server. TLS protects transport only.
 - **Certificates**: check expiry at startup and periodically, and warn within
-  `{{deploy.cert_warn_days}}` days. A separate script refreshes certs. The
+  `{{deploy.cert_warn_days}}` days. A separate script in the repo
+  (`scripts/refresh-certs.sh`) refreshes certs. The
   server itself contains no provider-specific logic.
 - **Admin CLI** (`pnpm auth ...`, dry-run unless `--apply`): bootstrap root,
   list users and keys, issue grant, add or remove key, set state, set
@@ -847,7 +863,8 @@ A regenerated app must satisfy all of these, in addition to sections 3 to 7.
    does not win forever.
 8. The order of the shared chain is identical on every device regardless of
    each device's finished-item display. Dragging an item in `end` mode keeps
-   it in its section and produces a sensible position in `mixed` mode.
+   it in its section, and in `mixed` mode the item sits directly after the
+   item it was dropped below (or before its section's first item).
 
 ### Device-local state
 9. Undoing a delete restores the item on every device, in its old place,
@@ -879,7 +896,8 @@ A regenerated app must satisfy all of these, in addition to sections 3 to 7.
     no privacy warnings and needs no extra confirmations.
 21. Double-clicking empty header space opens Edit Board and selects no text.
     Double-tap does the same on touch.
-22. Dragging across lists on a phone works by edge-snapping. Dropping on the
+22. Dragging across lists on a phone works by edge-snapping, one column
+    per dwell, so a far list is reachable in one drag. Dropping on the
     cancel zone restores the original position and scroll.
 23. A desktop without touch gets a live camera view for import, not a file
     dialog.
@@ -905,7 +923,7 @@ A regenerated app must satisfy all of these, in addition to sections 3 to 7.
 29. Sharing a board issues exactly one grant per share action, and the first
     share after a board gets its key works.
 30. A person who opens a share link in iOS Firefox and then copies the URL
-    into Safari can still get in: either "Join with a link" from the
+    into Safari can still get in: either "Open a link" from the
     missing-board page, or "I already joined in another browser" on the
     spent link.
 31. A browser that already has an account is refused a device link with a
@@ -917,15 +935,17 @@ A regenerated app must satisfy all of these, in addition to sections 3 to 7.
 34. Adding an image larger than the frame limit is rejected on the client
     with a message. It never wedges sync in a reconnect loop.
 35. `/api/import` rejects unauthenticated callers.
-36. With two routes to one server configured, dropping the primary route
-    promotes the standby without losing or duplicating pushes.
+36. With two routes to one server configured, losing the primary route
+    (its connection fails, or it is disabled) promotes the standby without
+    losing or duplicating pushes.
 37. Inviting a person who already has an account adds the space to that
-    account. No second account is created.
+    account, and its boards appear without a reconnect. No second account is
+    created.
 
 ### Onboarding and copy (requested, not yet in the reference app)
-38. Show a data-visibility notice once, when the user first *creates* data (a
-    board, list, or item) in a shared namespace. Never show it for edits such
-    as checking off an item. It says that everyone with access sees all changes,
+38. Show a data-visibility notice once per device, when the user first
+    *creates* data (a board, list, or item) in a shared namespace. Never show
+    it for edits such as checking off an item. It says that everyone with access sees all changes,
     that data is stored unencrypted on the server, and that only nicknames
     are shown.
 39. Onboarding encourages naming each device.
@@ -944,6 +964,9 @@ A regenerated app must satisfy all of these, in addition to sections 3 to 7.
     phone.
 46. E2e tests run against their own servers on their own ports, alongside a
     developer's running dev servers.
+47. Editing the same record twice on one connection, such as checking an
+    item off and back on, reaches another device live both times. Sync e2e
+    tests drive at least two browsers against a real throwaway server.
 
 ---
 
