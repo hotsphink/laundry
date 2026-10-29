@@ -351,7 +351,7 @@ Firefox Android reports `maxTouchPoints = 0`.
   - theme, sidebar pin, collapsed spaces;
   - last viewed board and list;
   - device-local overrides of list settings;
-  - dismissed notices.
+  - notice dismissals made offline, until they are sent.
 - **Themes**: `{{ui.themes}}`, using CSS `light-dark()` tokens. Respect
   `prefers-reduced-motion`. Hover styles apply only on `(hover: hover)`.
 - **Accessibility**:
@@ -431,7 +431,8 @@ Firefox Android reports `maxTouchPoints = 0`.
 - **Push tracking**: every local write newer than the last one the server
   has accepted for that record gets pushed. A second edit to the same record
   on the same connection is pushed like the first; bookkeeping that clears
-  an accepted write must not suppress later ones.
+  an accepted write must not suppress later ones. A push the server failed
+  to handle is not accepted: the client keeps it queued and retries it.
 - **Other messages**: key association and leaving, grant create, peek, and
   redeem, display name, device label, device list, and live fan-out of key
   and device changes to the user's other sockets.
@@ -480,7 +481,8 @@ Firefox Android reports `maxTouchPoints = 0`.
     `{{sync.extra_devices.window}}`. This is the Firefox-to-Safari case on iOS.
     The user must opt in explicitly ("I already joined in another browser").
     The account's other devices see a notice: a dismissible banner at the
-    top of the main area. Dismissal is per device.
+    top of the main area. Dismissal applies to the whole account and is
+    stored on the server; one made offline is sent on the next connect.
 - **Join link**: `<base>#/join/<6-char hash of server_id>/<grant_id>.<secret>[?b=<board>]`.
   - The link carries the server's identity, never its address.
   - The client resolves the hash against its configured endpoints, then the
@@ -965,7 +967,8 @@ A regenerated app must satisfy all of these, in addition to sections 3 to 7.
 46. E2e tests run against their own servers on their own ports, alongside a
     developer's running dev servers.
 47. Editing the same record twice on one connection, such as checking an
-    item off and back on, reaches another device live both times. Sync e2e
+    item off and back on, reaches another device live both times. A push
+    the server fails to handle is retried, not lost. Sync e2e
     tests drive at least two browsers against a real throwaway server.
 
 ---
